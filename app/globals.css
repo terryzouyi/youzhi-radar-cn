@@ -500,6 +500,70 @@ select:focus-visible {
   font-size: 10px;
 }
 
+.profile-fieldset,
+.filter-preferences {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.profile-fieldset legend,
+.filter-preferences legend {
+  margin-bottom: 8px;
+  padding: 0;
+  color: #8e9b94;
+  font-size: 10px;
+}
+
+.profile-fieldset small {
+  display: block;
+  margin-top: 8px;
+  color: #78877e;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.specialty-options,
+.filter-preferences {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.specialty-options button,
+.filter-preferences button {
+  min-height: 33px;
+  padding: 0 11px;
+  border: 1px solid #435149;
+  background: #28352e;
+  color: #9facA5;
+  font-size: 10px;
+}
+
+.specialty-options button:hover,
+.filter-preferences button:hover {
+  border-color: #78905e;
+  color: #f2f7ef;
+}
+
+.specialty-options button.active,
+.filter-preferences button.active {
+  border-color: #a9db50;
+  background: #31452f;
+  color: var(--accent);
+}
+
+.filter-preferences {
+  align-items: center;
+}
+
+.filter-preferences legend {
+  width: 100%;
+  margin-bottom: 1px;
+}
+
 .profile-form input,
 .profile-form select {
   width: 100%;
@@ -1115,10 +1179,26 @@ select:focus-visible {
 }
 
 .filter-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   padding: 8px 12px;
   background: transparent;
   color: var(--muted);
   font-size: 11px;
+}
+
+.filter-row button em {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  background: #e0e4dc;
+  color: var(--ink-soft);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8px;
+  font-style: normal;
 }
 
 .filter-row button:hover {
@@ -1129,6 +1209,11 @@ select:focus-visible {
   background: var(--ink);
   color: #fff;
   font-weight: 700;
+}
+
+.filter-row button.active em {
+  background: rgb(255 255 255 / 0.14);
+  color: #fff;
 }
 
 .filter-row .filter-control {
@@ -1209,7 +1294,8 @@ select:focus-visible {
 }
 
 .tag-row,
-.reason-row {
+.reason-row,
+.dimension-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1240,6 +1326,24 @@ select:focus-visible {
   padding: 10px 0;
   border-top: 1px dashed var(--line);
   border-bottom: 1px dashed var(--line);
+}
+
+.dimension-row {
+  margin-top: 12px;
+  padding: 10px 0;
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+}
+
+.dimension-row span {
+  color: var(--ink-soft);
+  font-size: 9px;
+}
+
+.dimension-row strong {
+  margin-right: 2px;
+  color: var(--accent-dark);
+  font-size: 8px;
 }
 
 .reason-row strong {
@@ -1320,6 +1424,18 @@ select:focus-visible {
   font-size: 25px;
   font-weight: 730;
   letter-spacing: -0.08em;
+}
+
+.match-score.priority strong {
+  color: #426b00;
+}
+
+.match-score.incomplete strong {
+  color: #98700f;
+}
+
+.match-score.expanded strong {
+  color: #725d7c;
 }
 
 .match-score span {
@@ -1684,6 +1800,25 @@ select:focus-visible {
   gap: 7px;
 }
 
+.modal-dimensions {
+  display: grid;
+  gap: 8px;
+}
+
+.modal-dimensions span {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.modal-dimensions strong {
+  color: var(--accent-dark);
+}
+
 .modal-reasons span {
   padding: 8px 10px;
   background: #e6f2d4;
@@ -1850,6 +1985,8 @@ select:focus-visible {
   }
 
   .profile-form label.wide,
+  .profile-fieldset,
+  .filter-preferences,
   .profile-form .primary-button {
     grid-column: 1 / -1;
   }
@@ -1997,7 +2134,8 @@ select:focus-visible {
     font-size: 20px;
   }
 
-  .reason-row {
+  .reason-row,
+  .dimension-row {
     display: none;
   }
 

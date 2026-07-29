@@ -3,9 +3,10 @@ import {
   findCoveredCompany,
 } from "../../../data/companies";
 import {
+  evaluateProfile,
   matchesCities,
   matchesExperience,
-  matchesProfile,
+  matchesIndustryScope,
   matchesSalary,
   matchesTargetRole,
   parseExperienceRange,
@@ -33,17 +34,41 @@ type NormalizedJob = {
   summary: string;
   originalUrl: string;
   provider: "tencent" | "netease" | "nowcoder" | "liepin";
+  matchTier?: "priority" | "expanded" | "incomplete";
+  grade?: "A" | "B" | "C";
+  tierLabel?: "精准匹配" | "拓展机会" | "信息待确认";
+  matchDimensions?: {
+    role: string;
+    conditions: string;
+    data: string;
+  };
   coverageOrder?: number;
   coveredCompany?: string;
+};
+
+type MatchTier = "priority" | "expanded" | "incomplete";
+type RankedJob = NormalizedJob & {
+  matchTier: MatchTier;
+  grade: "A" | "B" | "C";
+  tierLabel: "精准匹配" | "拓展机会" | "信息待确认";
+  matchDimensions: {
+    role: string;
+    conditions: string;
+    data: string;
+  };
 };
 
 type SearchProfile = {
   currentRole: string;
   targetRole: string;
+  relatedRoles: string;
   cities: string;
   years: string;
   salary: string;
   keywords: string;
+  strictYears: boolean;
+  strictSalary: boolean;
+  allowRemote: boolean;
 };
 
 type SourceState = {
@@ -224,7 +249,13 @@ function scoreJob(input: {
     salary: input.salary,
   };
   const hasCities = splitTerms(input.profile.cities).length > 0;
-  const cityHit = hasCities && matchesCities(filterableJob, input.profile.cities);
+  const cityHit =
+    hasCities &&
+    matchesCities(
+      filterableJob,
+      input.profile.cities,
+      input.profile.allowRemote,
+    );
   const experienceKnown = Boolean(parseExperienceRange(input.experience));
   const experienceHit =
     experienceKnown && matchesExperience(filterableJob, input.profile.years);
@@ -278,7 +309,11 @@ function recommendationReasons(
   }
   if (
     splitTerms(input.profile.cities).length &&
-    matchesCities(filterableJob, input.profile.cities)
+    matchesCities(
+      filterableJob,
+      input.profile.cities,
+      input.profile.allowRemote,
+    )
   ) {
     reasons.push("意向城市命中");
   }
@@ -853,9 +888,16 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const rawQuery =
     url.searchParams.get("q")?.trim().slice(0, 80) || "游戏策划";
-  const roleQueries = splitTerms(rawQuery).slice(0, 3);
-  if (!roleQueries.length) roleQueries.push("游戏策划");
-  const query = roleQueries.join(" / ");
+  const legacyRoles = splitTerms(rawQuery);
+  const primaryRole = legacyRoles[0] || "游戏策划";
+  const relatedParam =
+    url.searchParams.get("related")?.trim().slice(0, 120) || "";
+  const relatedRoles = [
+    ...legacyRoles.slice(1),
+    ...splitTerms(relatedParam),
+  ].filter((role, index, roles) => role !== primaryRole && roles.indexOf(role) === index);
+  const roleQueries = [primaryRole, ...relatedRoles].slice(0, 3);
+  const query = primaryRole;
   const cities = url.searchParams.get("cities")?.trim().slice(0, 100) || "";
   const years = url.searchParams.get("years")?.trim().slice(0, 40) || "";
   const salary = url.searchParams.get("salary")?.trim().slice(0, 40) || "";
@@ -863,13 +905,20 @@ export async function GET(request: Request) {
     url.searchParams.get("currentRole")?.trim().slice(0, 80) || "";
   const keywords =
     url.searchParams.get("keywords")?.trim().slice(0, 120) || "";
+  const strictYears = url.searchParams.get("strictYears") === "true";
+  const strictSalary = url.searchParams.get("strictSalary") === "true";
+  const allowRemote = url.searchParams.get("allowRemote") !== "false";
   const profile: SearchProfile = {
     currentRole,
-    targetRole: query,
+    targetRole: primaryRole,
+    relatedRoles: relatedRoles.join("、"),
     cities,
     years,
     salary,
     keywords,
+    strictYears,
+    strictSalary,
+    allowRemote,
   };
   const requestedCompany =
     url.searchParams.get("company")?.trim().slice(0, 80) || "";
@@ -930,14 +979,36 @@ export async function GET(request: Request) {
   });
 
   const collectedUniqueJobs = dedupeJobs(collectedJobs);
-  const jobs = collectedUniqueJobs.filter(
-    (job) =>
-      (!selectedCompany ||
-        job.coveredCompany === selectedCompany.name ||
-        findCoveredCompany(job.company)?.id === selectedCompany.id) &&
-      matchesProfile(job, profile),
-  );
+  const jobs: RankedJob[] = collectedUniqueJobs.flatMap((job): RankedJob[] => {
+    const companyMatches =
+      !selectedCompany ||
+      job.coveredCompany === selectedCompany.name ||
+      findCoveredCompany(job.company)?.id === selectedCompany.id;
+    const industryMatches =
+      job.sourceType === "官网直招" || matchesIndustryScope(job);
+    if (!companyMatches || !industryMatches) return [];
+
+    const evaluation = evaluateProfile(job, profile);
+    if (!evaluation.eligible) return [];
+    return [
+      {
+        ...job,
+        matchTier: evaluation.tier as MatchTier,
+        grade: evaluation.grade as RankedJob["grade"],
+        tierLabel: evaluation.tierLabel as RankedJob["tierLabel"],
+        matchDimensions: evaluation.dimensions,
+      },
+    ];
+  });
+  const tierOrder: Record<MatchTier, number> = {
+    priority: 0,
+    incomplete: 1,
+    expanded: 2,
+  };
   jobs.sort((a, b) => {
+    const tierDifference =
+      tierOrder[a.matchTier] - tierOrder[b.matchTier];
+    if (tierDifference) return tierDifference;
     if (b.match !== a.match) return b.match - a.match;
     if (a.sourceType !== b.sourceType) {
       return a.sourceType === "官网直招" ? -1 : 1;
@@ -947,6 +1018,13 @@ export async function GET(request: Request) {
       new Date(a.updatedAt || 0).getTime()
     );
   });
+  const tierCounts = jobs.reduce<Record<MatchTier, number>>(
+    (counts, job) => {
+      counts[job.matchTier] += 1;
+      return counts;
+    },
+    { priority: 0, expanded: 0, incomplete: 0 },
+  );
 
   return Response.json(
     {
@@ -955,12 +1033,17 @@ export async function GET(request: Request) {
       fetchedAt: new Date().toISOString(),
       query,
       filters: {
-        roles: roleQueries,
+        roles: [primaryRole],
+        relatedRoles,
         cities: splitTerms(cities),
         years,
         salary,
         keywords: splitTerms(keywords),
+        strictYears,
+        strictSalary,
+        allowRemote,
       },
+      tierCounts,
       filtering: {
         collectedJobs: collectedUniqueJobs.length,
         matchedJobs: jobs.length,

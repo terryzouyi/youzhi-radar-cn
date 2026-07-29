@@ -12,16 +12,26 @@ import {
   companyCoverageStats,
   companyProfiles,
 } from "../data/companies";
+import {
+  findRoleTrack,
+  roleTracks,
+} from "../data/job-taxonomy";
 import { recruitmentSignals } from "../data/recruitment-signals";
 import { isRecentJob } from "../lib/job-filtering.js";
+
+type MatchTier = "priority" | "expanded" | "incomplete";
 
 type Profile = {
   currentRole: string;
   years: string;
   targetRole: string;
+  specialties: string[];
   cities: string;
   salary: string;
   keywords: string;
+  strictYears: boolean;
+  strictSalary: boolean;
+  allowRemote: boolean;
 };
 
 type Job = {
@@ -51,6 +61,14 @@ type Job = {
     | "demo";
   coverageOrder?: number;
   coveredCompany?: string;
+  matchTier?: MatchTier;
+  grade?: "A" | "B" | "C";
+  tierLabel?: "精准匹配" | "拓展机会" | "信息待确认";
+  matchDimensions?: {
+    role: string;
+    conditions: string;
+    data: string;
+  };
 };
 
 type SourceState = {
@@ -70,6 +88,7 @@ type JobsResponse = {
   query: string;
   company?: string;
   live: boolean;
+  tierCounts?: Record<MatchTier, number>;
   coverage?: {
     matchedJobs: number;
     matchedCompanies: number;
@@ -79,10 +98,14 @@ type JobsResponse = {
 const defaultProfile: Profile = {
   currentRole: "游戏产品经理",
   years: "3–5 年",
-  targetRole: "游戏策划 / 产品经理",
+  targetRole: "游戏策划",
+  specialties: ["系统策划", "商业化策划", "数值策划"],
   cities: "上海、杭州、深圳",
   salary: "25–35K",
-  keywords: "系统策划，商业化，数值设计",
+  keywords: "全球化，长线运营",
+  strictYears: false,
+  strictSalary: false,
+  allowRemote: true,
 };
 
 const demoJobs: Job[] = [
@@ -100,6 +123,14 @@ const demoJobs: Job[] = [
     freshness: "37 分钟前",
     tags: ["系统策划", "商业化", "全球化"],
     reasons: ["方向高度重合", "薪资在目标区间", "城市命中"],
+    matchTier: "priority",
+    grade: "A",
+    tierLabel: "精准匹配",
+    matchDimensions: {
+      role: "主方向命中",
+      conditions: "年限匹配 · 薪资达到预期",
+      data: "关键信息完整",
+    },
     summary:
       "负责全球化新品的核心系统、成长线与商业化体验设计，要求能独立完成从需求分析到版本验收的完整闭环。",
     provider: "demo",
@@ -118,6 +149,14 @@ const demoJobs: Job[] = [
     freshness: "今天 09:18",
     tags: ["产品规划", "策略竞技", "数据分析"],
     reasons: ["经历可迁移", "城市命中", "近期活跃"],
+    matchTier: "expanded",
+    grade: "C",
+    tierLabel: "拓展机会",
+    matchDimensions: {
+      role: "可迁移方向",
+      conditions: "年限匹配 · 薪资达到预期",
+      data: "关键信息完整",
+    },
     summary:
       "面向策略竞技品类，推进玩法与版本规划，并结合用户研究和数据分析持续优化核心循环。",
     provider: "demo",
@@ -136,6 +175,14 @@ const demoJobs: Job[] = [
     freshness: "昨天",
     tags: ["商业化", "开放世界", "版本运营"],
     reasons: ["核心关键词命中", "薪资高于预期", "官网首发"],
+    matchTier: "priority",
+    grade: "A",
+    tierLabel: "精准匹配",
+    matchDimensions: {
+      role: "主方向命中",
+      conditions: "年限匹配 · 薪资达到预期",
+      data: "关键信息完整",
+    },
     summary:
       "负责开放世界项目商业化内容的规划与落地，协同系统、美术和运营团队完成版本目标。",
     provider: "demo",
@@ -154,6 +201,14 @@ const demoJobs: Job[] = [
     freshness: "今天 08:42",
     tags: ["SLG", "数值设计", "系统策划"],
     reasons: ["技能高度匹配", "年限略高", "招聘方活跃"],
+    matchTier: "expanded",
+    grade: "C",
+    tierLabel: "拓展机会",
+    matchDimensions: {
+      role: "主方向命中",
+      conditions: "年限有差距 · 薪资达到预期",
+      data: "关键信息完整",
+    },
     summary:
       "参与 SLG 长线系统与数值生态设计，建立验证框架并持续优化付费与社交体验。",
     provider: "demo",
@@ -165,13 +220,21 @@ const demoJobs: Job[] = [
     companyCode: "PAP",
     color: "#b94c87",
     meta: "上海 · 3–5 年 · 本科",
-    salary: "25–35K · 14薪",
+    salary: "薪资面议",
     source: "牛客招聘",
     sourceType: "招聘平台",
     match: 82,
     freshness: "2 天前",
     tags: ["关卡设计", "UE5", "叙事体验"],
-    reasons: ["城市命中", "薪资吻合", "方向部分重合"],
+    reasons: ["城市命中", "关卡方向命中", "薪资需要确认"],
+    matchTier: "incomplete",
+    grade: "B",
+    tierLabel: "信息待确认",
+    matchDimensions: {
+      role: "主方向命中",
+      conditions: "年限匹配 · 薪资待确认",
+      data: "薪资待确认",
+    },
     summary:
       "负责关卡节奏、玩法空间和叙事体验设计，与程序、美术协作完成白盒到正式版本的落地。",
     provider: "demo",
@@ -190,6 +253,14 @@ const demoJobs: Job[] = [
     freshness: "3 天前",
     tags: ["UGC", "社区产品", "内容生态"],
     reasons: ["产品能力可迁移", "城市命中", "薪资下沿偏低"],
+    matchTier: "expanded",
+    grade: "C",
+    tierLabel: "拓展机会",
+    matchDimensions: {
+      role: "可迁移方向",
+      conditions: "年限匹配 · 薪资低于预期",
+      data: "关键信息完整",
+    },
     summary:
       "围绕 UGC 创作与消费场景设计产品能力，推进创作者工具、内容分发和社区生态建设。",
     provider: "demo",
@@ -203,7 +274,13 @@ const navItems = [
   ["▦", "厂商库"],
 ];
 
-const filters = ["全部职位", "高匹配", "官网直招", "近三天"];
+const filters = ["精准匹配", "拓展机会", "信息待确认", "全部结果"];
+const filterTier: Record<string, MatchTier | null> = {
+  精准匹配: "priority",
+  拓展机会: "expanded",
+  信息待确认: "incomplete",
+  全部结果: null,
+};
 const companyKinds: Array<CompanyKind | "全部"> = [
   "全部",
   "头部综合",
@@ -216,6 +293,48 @@ const isGitHubPages =
   process.env.NEXT_PUBLIC_GITHUB_PAGES === "true";
 const liveSiteUrl =
   "https://youzhi-radar-cn.sakurazou792501.chatgpt.site";
+
+function normalizeStoredProfile(value: unknown): Profile {
+  if (!value || typeof value !== "object") return defaultProfile;
+  const stored = value as Partial<Profile>;
+  const legacyTarget =
+    typeof stored.targetRole === "string"
+      ? stored.targetRole.split(/[\/、,，;；]/)[0].trim()
+      : defaultProfile.targetRole;
+  const role =
+    roleTracks.find(
+      (track) =>
+        track.label === legacyTarget ||
+        legacyTarget.includes(track.label) ||
+        (legacyTarget === "产品经理" && track.label === "游戏产品经理"),
+    ) || findRoleTrack(defaultProfile.targetRole);
+  return {
+    ...defaultProfile,
+    ...stored,
+    targetRole: role.label,
+    specialties: Array.isArray(stored.specialties)
+      ? stored.specialties.filter((item): item is string => typeof item === "string")
+      : defaultProfile.specialties,
+    strictYears: stored.strictYears === true,
+    strictSalary: stored.strictSalary === true,
+    allowRemote: stored.allowRemote !== false,
+  };
+}
+
+function getJobTier(job: Job): MatchTier {
+  if (job.matchTier) return job.matchTier;
+  if (job.match >= 90) return "priority";
+  if (job.match >= 80) return "incomplete";
+  return "expanded";
+}
+
+function getJobGrade(job: Job) {
+  return job.grade || (getJobTier(job) === "priority"
+    ? "A"
+    : getJobTier(job) === "incomplete"
+      ? "B"
+      : "C");
+}
 
 const initialOfficialSources: SourceState[] = [
   {
@@ -267,7 +386,7 @@ export default function Home() {
   const [profile, setProfile] = useState<Profile>(defaultProfile);
   const [savedProfile, setSavedProfile] = useState<Profile>(defaultProfile);
   const [activeNav, setActiveNav] = useState("岗位雷达");
-  const [activeFilter, setActiveFilter] = useState("全部职位");
+  const [activeFilter, setActiveFilter] = useState("精准匹配");
   const [savedJobs, setSavedJobs] = useState<Array<string | number>>([3]);
   const [search, setSearch] = useState("");
   const [scanning, setScanning] = useState(!isGitHubPages);
@@ -289,6 +408,7 @@ export default function Home() {
   const [companyQuery, setCompanyQuery] = useState("");
   const [companyKind, setCompanyKind] = useState<CompanyKind | "全部">("全部");
   const [companyLimit, setCompanyLimit] = useState(24);
+  const activeRoleTrack = findRoleTrack(profile.targetRole);
 
   const loadJobs = useCallback(
     async (
@@ -312,13 +432,20 @@ export default function Home() {
         setScanning(false);
         return;
       }
+      const roleTrack = findRoleTrack(currentProfile.targetRole);
       const params = new URLSearchParams({
-        q: currentProfile.targetRole,
+        q: roleTrack.query,
+        related: roleTrack.relatedRoles.join("，"),
         currentRole: currentProfile.currentRole,
         cities: currentProfile.cities,
         years: currentProfile.years,
         salary: currentProfile.salary,
-        keywords: currentProfile.keywords,
+        keywords: [...currentProfile.specialties, currentProfile.keywords]
+          .filter(Boolean)
+          .join("，"),
+        strictYears: String(currentProfile.strictYears),
+        strictSalary: String(currentProfile.strictSalary),
+        allowRemote: String(currentProfile.allowRemote),
       });
       if (companyName) params.set("company", companyName);
       try {
@@ -388,7 +515,7 @@ export default function Home() {
     let parsedSavedJobs: Array<string | number> | null = null;
     if (storedProfile) {
       try {
-        parsedProfile = JSON.parse(storedProfile) as Profile;
+        parsedProfile = normalizeStoredProfile(JSON.parse(storedProfile));
         initialProfile = parsedProfile;
       } catch {
         window.localStorage.removeItem("youzhi-profile");
@@ -476,7 +603,26 @@ export default function Home() {
   const onlineSourceCount = displaySources.filter(
     (source) => source.status === "online",
   ).length;
-  const highMatchCount = jobResults.filter((job) => job.match >= 85).length;
+  const tierCounts = useMemo(
+    () =>
+      jobResults.reduce(
+        (counts, job) => {
+          counts[getJobTier(job)] += 1;
+          return counts;
+        },
+        { priority: 0, expanded: 0, incomplete: 0 } as Record<
+          MatchTier,
+          number
+        >,
+      ),
+    [jobResults],
+  );
+  const filterCounts: Record<string, number> = {
+    精准匹配: tierCounts.priority,
+    拓展机会: tierCounts.expanded,
+    信息待确认: tierCounts.incomplete,
+    全部结果: jobResults.length,
+  };
   const referenceTime = lastUpdated
     ? new Date(lastUpdated).getTime()
     : undefined;
@@ -499,12 +645,9 @@ export default function Home() {
           .join(" ")
           .toLowerCase()
           .includes(keyword);
+      const selectedTier = filterTier[activeFilter];
       const passesFilter =
-        activeFilter === "全部职位" ||
-        (activeFilter === "高匹配" && job.match >= 85) ||
-        (activeFilter === "官网直招" && job.sourceType === "官网直招") ||
-        (activeFilter === "近三天" &&
-          isRecentJob(job.updatedAt, referenceTime));
+        selectedTier === null || getJobTier(job) === selectedTier;
       const passesSaved =
         activeNav !== "收藏夹" || savedJobs.includes(job.id);
       return passesSearch && passesFilter && passesSaved;
@@ -513,21 +656,30 @@ export default function Home() {
     activeFilter,
     activeNav,
     jobResults,
-    referenceTime,
     savedJobs,
     search,
   ]);
   const isJobViewFiltered =
-    activeFilter !== "全部职位" ||
+    activeFilter !== "全部结果" ||
     activeNav === "收藏夹" ||
     search.trim().length > 0;
+  const resultTitle =
+    activeNav === "收藏夹"
+      ? "收藏职位"
+      : activeFilter === "精准匹配"
+        ? "优先投递的职位"
+        : activeFilter === "拓展机会"
+          ? "可以拓展的机会"
+          : activeFilter === "信息待确认"
+            ? "条件待确认的职位"
+            : "全部相关职位";
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setSavedProfile(profile);
     window.localStorage.setItem("youzhi-profile", JSON.stringify(profile));
     setActiveNav("岗位雷达");
-    setActiveFilter("全部职位");
+    setActiveFilter("精准匹配");
     setSearch("");
     if (isGitHubPages) {
       window.open(liveSiteUrl, "_blank", "noopener,noreferrer");
@@ -548,7 +700,7 @@ export default function Home() {
 
   const handleNav = (label: string) => {
     setActiveNav(label);
-    if (label !== "收藏夹") setActiveFilter("全部职位");
+    setActiveFilter(label === "收藏夹" ? "全部结果" : "精准匹配");
     const target =
       label === "我的方向"
         ? document.getElementById("profile-title")
@@ -698,7 +850,7 @@ export default function Home() {
               <p className="kicker">你的目标画像</p>
               <h2 id="profile-title">先定义方向，再开始搜索。</h2>
               <p>
-                目标方向按任一命中，城市为明确筛选；年限和薪资在来源提供信息时参与筛选，未知项保留待核对。
+                只选一个主方向，专长用于排序；城市是明确边界，年限和薪资默认用于分层，不会悄悄删掉机会。
               </p>
             </div>
           </div>
@@ -728,15 +880,26 @@ export default function Home() {
               </select>
             </label>
             <label className="wide">
-              <span>目标方向</span>
-              <input
-                onChange={(event) =>
-                  setProfile({ ...profile, targetRole: event.target.value })
-                }
+              <span>主方向（单选）</span>
+              <select
+                onChange={(event) => {
+                  const nextTrack = findRoleTrack(event.target.value);
+                  setProfile({
+                    ...profile,
+                    targetRole: nextTrack.label,
+                    specialties: nextTrack.specialties.slice(0, 2),
+                  });
+                }}
                 value={profile.targetRole}
-              />
+              >
+                {roleTracks.map((track) => (
+                  <option key={track.id} value={track.label}>
+                    {track.label}
+                  </option>
+                ))}
+              </select>
             </label>
-            <label>
+            <label className="wide">
               <span>意向城市</span>
               <input
                 onChange={(event) =>
@@ -754,15 +917,92 @@ export default function Home() {
                 value={profile.salary}
               />
             </label>
+            <fieldset className="profile-fieldset">
+              <legend>专长偏好（可多选，只影响排序）</legend>
+              <div className="specialty-options">
+                {activeRoleTrack.specialties.map((specialty) => {
+                  const selected = profile.specialties.includes(specialty);
+                  return (
+                    <button
+                      aria-pressed={selected}
+                      className={selected ? "active" : ""}
+                      key={specialty}
+                      onClick={() =>
+                        setProfile({
+                          ...profile,
+                          specialties: selected
+                            ? profile.specialties.filter(
+                                (item) => item !== specialty,
+                              )
+                            : [...profile.specialties, specialty],
+                        })
+                      }
+                      type="button"
+                    >
+                      {selected ? "✓ " : "+ "}
+                      {specialty}
+                    </button>
+                  );
+                })}
+              </div>
+              <small>
+                {`系统会自动把 ${
+                  activeRoleTrack.relatedRoles.join("、") || "相邻岗位"
+                } 放入拓展机会，不与主方向混在一起。`}
+              </small>
+            </fieldset>
             <label className="wide keyword-field">
-              <span>能力关键词</span>
+              <span>补充关键词（项目、品类或能力）</span>
               <input
+                placeholder="例如：全球化、SLG、长线运营"
                 onChange={(event) =>
                   setProfile({ ...profile, keywords: event.target.value })
                 }
                 value={profile.keywords}
               />
             </label>
+            <fieldset className="filter-preferences">
+              <legend>匹配边界</legend>
+              <button
+                aria-pressed={profile.strictYears}
+                className={profile.strictYears ? "active" : ""}
+                onClick={() =>
+                  setProfile({
+                    ...profile,
+                    strictYears: !profile.strictYears,
+                  })
+                }
+                type="button"
+              >
+                {profile.strictYears ? "✓" : "○"} 年限严格
+              </button>
+              <button
+                aria-pressed={profile.strictSalary}
+                className={profile.strictSalary ? "active" : ""}
+                onClick={() =>
+                  setProfile({
+                    ...profile,
+                    strictSalary: !profile.strictSalary,
+                  })
+                }
+                type="button"
+              >
+                {profile.strictSalary ? "✓" : "○"} 薪资严格
+              </button>
+              <button
+                aria-pressed={profile.allowRemote}
+                className={profile.allowRemote ? "active" : ""}
+                onClick={() =>
+                  setProfile({
+                    ...profile,
+                    allowRemote: !profile.allowRemote,
+                  })
+                }
+                type="button"
+              >
+                {profile.allowRemote ? "✓" : "○"} 接受远程 / 全国
+              </button>
+            </fieldset>
             <button className="primary-button" disabled={scanning} type="submit">
               {isGitHubPages ? (
                 "前往实时版匹配 →"
@@ -792,9 +1032,9 @@ export default function Home() {
             </small>
           </div>
           <div>
-            <strong>{highMatchCount}</strong>
-            <span>高匹配</span>
-            <small>匹配度 85% 以上</small>
+            <strong>{tierCounts.priority}</strong>
+            <span>优先投递</span>
+            <small>A 级 · 主方向与已知条件吻合</small>
           </div>
           <div>
             <strong>{onlineSourceCount}</strong>
@@ -1000,7 +1240,7 @@ export default function Home() {
                   <button
                     onClick={() => {
                       setActiveNav("岗位雷达");
-                      setActiveFilter("全部职位");
+                      setActiveFilter("精准匹配");
                       setSearch("");
                       if (isGitHubPages) {
                         window.open(
@@ -1094,9 +1334,7 @@ export default function Home() {
                 <span className="section-number">04</span>
                 <div>
                   <p className="kicker">匹配结果</p>
-                  <h2 id="results-title">
-                    {activeNav === "收藏夹" ? "收藏职位" : "值得优先看的职位"}
-                  </h2>
+                  <h2 id="results-title">{resultTitle}</h2>
                 </div>
               </div>
               <label className="search-box">
@@ -1119,7 +1357,7 @@ export default function Home() {
                     : "!"}
               </span>
               {dataMode === "live"
-                ? `${companyFocus ? `聚焦 ${companyFocus} · ` : ""}实时数据 · ${onlineSourceCount} 个来源在线 · 当前展示 ${visibleJobs.length}/${jobResults.length} 个职位，其中 ${coverage.matchedJobs} 个命中 Top100 厂商`
+                ? `${companyFocus ? `聚焦 ${companyFocus} · ` : ""}实时数据 · ${onlineSourceCount} 个来源在线 · A 级 ${tierCounts.priority} 个、待确认 ${tierCounts.incomplete} 个、拓展 ${tierCounts.expanded} 个 · ${coverage.matchedJobs} 个命中 Top100 厂商`
                 : isGitHubPages
                   ? "GitHub Pages 静态镜像 · 当前职位为明确标注的演示数据"
                 : dataMode === "loading"
@@ -1138,19 +1376,20 @@ export default function Home() {
                   type="button"
                 >
                   {filter}
+                  <em>{filterCounts[filter]}</em>
                 </button>
               ))}
               <button
                 className="filter-control"
                 onClick={() => {
                   setNotice(
-                    "城市、年限和薪资已按上方目标画像生效；来源不提供的信息会保留待核对",
+                    "主方向和城市是硬边界；年限、薪资默认用于分层，开启严格模式后才会排除已知不符的职位",
                   );
                   window.setTimeout(() => setNotice(""), 3000);
                 }}
                 type="button"
               >
-                ☷ 更多筛选
+                ⓘ 分层说明
               </button>
             </div>
 
@@ -1185,11 +1424,19 @@ export default function Home() {
                           <span key={tag}>{tag}</span>
                         ))}
                       </div>
-                      <div className="reason-row">
-                        <strong>匹配理由</strong>
-                        {job.reasons.map((reason) => (
-                          <span key={reason}>✓ {reason}</span>
-                        ))}
+                      <div className="dimension-row">
+                        <span>
+                          <strong>方向</strong>{" "}
+                          {job.matchDimensions?.role || "相关方向"}
+                        </span>
+                        <span>
+                          <strong>条件</strong>{" "}
+                          {job.matchDimensions?.conditions || "需要进一步核对"}
+                        </span>
+                        <span>
+                          <strong>数据</strong>{" "}
+                          {job.matchDimensions?.data || "来源信息待确认"}
+                        </span>
                       </div>
                       <div className="job-foot">
                         <div>
@@ -1232,9 +1479,18 @@ export default function Home() {
                         </div>
                       </div>
                     </div>
-                    <div className="match-score">
-                      <strong>{job.match}</strong>
-                      <span>% 匹配</span>
+                    <div
+                      className={`match-score ${getJobTier(job)}`}
+                      aria-label={`${job.tierLabel || filters.find((filter) => filterTier[filter] === getJobTier(job))}，${getJobGrade(job)} 级`}
+                    >
+                      <strong>{getJobGrade(job)}</strong>
+                      <span>{job.tierLabel || (
+                        getJobTier(job) === "priority"
+                          ? "精准匹配"
+                          : getJobTier(job) === "incomplete"
+                            ? "待确认"
+                            : "拓展机会"
+                      )}</span>
                     </div>
                   </article>
                 ))
@@ -1255,7 +1511,7 @@ export default function Home() {
                     className="secondary-button"
                     onClick={() => {
                       setSearch("");
-                      setActiveFilter("全部职位");
+                      setActiveFilter("全部结果");
                       if (companyFocus) {
                         void loadJobs(savedProfile, true);
                       }
@@ -1345,7 +1601,7 @@ export default function Home() {
                     key={company}
                     onClick={() => {
                       setActiveNav("岗位雷达");
-                      setActiveFilter("全部职位");
+                      setActiveFilter("全部结果");
                       setSearch(company);
                       document
                         .getElementById("results-title")
@@ -1447,8 +1703,33 @@ export default function Home() {
                 </span>
               </div>
               <div>
-                <strong>{selectedJob.match}%</strong>
-                <span>与你的方向匹配</span>
+                <strong>{getJobGrade(selectedJob)} 级</strong>
+                <span>
+                  {selectedJob.tierLabel ||
+                    (getJobTier(selectedJob) === "priority"
+                      ? "精准匹配"
+                      : getJobTier(selectedJob) === "incomplete"
+                        ? "信息待确认"
+                        : "拓展机会")}
+                </span>
+              </div>
+            </div>
+            <div className="modal-section">
+              <h3>判断维度</h3>
+              <div className="modal-dimensions">
+                <span>
+                  <strong>方向</strong>
+                  {selectedJob.matchDimensions?.role || "相关方向"}
+                </span>
+                <span>
+                  <strong>条件</strong>
+                  {selectedJob.matchDimensions?.conditions ||
+                    "需要进一步核对"}
+                </span>
+                <span>
+                  <strong>数据</strong>
+                  {selectedJob.matchDimensions?.data || "来源信息待确认"}
+                </span>
               </div>
             </div>
             <div className="modal-section">
