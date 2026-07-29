@@ -40,7 +40,18 @@ test("server-renders the job radar product", async () => {
 });
 
 test("removes the disposable starter preview", async () => {
-  const [page, route, companyRoute, companies, layout, packageJson] =
+  const [
+    page,
+    route,
+    companyRoute,
+    companies,
+    layout,
+    packageJson,
+    nextConfig,
+    pagesTsconfig,
+    pagesWorkflow,
+    pagesBuild,
+  ] =
     await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/jobs/route.ts", import.meta.url), "utf8"),
@@ -51,6 +62,13 @@ test("removes the disposable starter preview", async () => {
     readFile(new URL("../data/companies.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../next.config.ts", import.meta.url), "utf8"),
+    readFile(new URL("../tsconfig.pages.json", import.meta.url), "utf8"),
+    readFile(
+      new URL("../.github/workflows/deploy-pages.yml", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../scripts/build-pages.mjs", import.meta.url), "utf8"),
     ]);
 
   assert.match(page, /游职雷达/);
@@ -58,6 +76,7 @@ test("removes the disposable starter preview", async () => {
   assert.match(page, /\/api\/jobs/);
   assert.match(page, /originalUrl/);
   assert.match(page, /aria-modal="true"/);
+  assert.match(page, /GitHub Pages 是静态镜像/);
   assert.match(route, /careers\.tencent\.com/);
   assert.match(route, /hr\.163\.com/);
   assert.match(route, /np-api\/u\/job\/search/);
@@ -73,6 +92,14 @@ test("removes the disposable starter preview", async () => {
   assert.equal((seedBlock[0].match(/^\s+\["/gm) || []).length, 100);
   assert.match(layout, /lang="zh-CN"/);
   assert.match(layout, /互联网与游戏行业求职搜索/);
+  assert.match(nextConfig, /output: "export"/);
+  assert.match(nextConfig, /basePath/);
+  assert.match(nextConfig, /tsconfig\.pages\.json/);
+  assert.match(pagesTsconfig, /"app\/api"/);
+  assert.match(pagesWorkflow, /actions\/deploy-pages@v4/);
+  assert.match(pagesWorkflow, /pnpm run build:pages/);
+  assert.match(pagesBuild, /parkedApiDirectory/);
+  assert.match(packageJson, /build:pages/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 
   await assert.rejects(

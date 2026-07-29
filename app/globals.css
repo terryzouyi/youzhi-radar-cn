@@ -388,6 +388,46 @@ select:focus-visible {
   opacity: 0.68;
 }
 
+.static-mirror-banner {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 13px clamp(28px, 4vw, 62px);
+  border-bottom: 1px solid #b2d56e;
+  background: #e9f6ca;
+  color: #26331c;
+}
+
+.static-mirror-banner > div {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.static-mirror-banner strong {
+  font-size: 12px;
+}
+
+.static-mirror-banner span {
+  color: #52633f;
+  font-size: 11px;
+}
+
+.static-mirror-banner a {
+  color: #365600;
+  font-size: 11px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.static-mirror-banner a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .profile-panel {
   display: grid;
   grid-template-columns: minmax(240px, 0.72fr) minmax(560px, 1.7fr);
@@ -1597,6 +1637,19 @@ select:focus-visible {
 
   .topbar h1 {
     font-size: 29px;
+  }
+
+  .static-mirror-banner {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 20px;
+  }
+
+  .static-mirror-banner > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .secondary-button {

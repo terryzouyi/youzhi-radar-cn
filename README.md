@@ -1,98 +1,43 @@
-# vinext-starter
+# 游职雷达
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+面向中国境内互联网与游戏行业的个人求职搜索工作台。用户录入当前经历、目标岗位、城市、薪资和能力关键词后，可以统一查看厂商官网与公开招聘平台职位，并按 100 家重点厂商定向查询。
 
-## Prerequisites
+## 当前能力
 
-- Node.js `>=22.13.0`
+- 100 家国内游戏与互联网游戏业务厂商目录。
+- 腾讯、网易官方招聘职位。
+- 牛客、猎聘公开招聘职位。
+- 统一去重、匹配评分、来源标注与原始职位跳转。
+- 按公司定向搜索、职位收藏和设备本地画像。
 
-## Quick Start
+## 本地开发
+
+需要 Node.js `>=22.13.0` 与 pnpm。
 
 ```bash
-npm install
-npm run dev
-npm run build
+pnpm install
+pnpm run dev
 ```
 
-This starter does not use `wrangler.jsonc`.
+常用检查：
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+pnpm test
+pnpm lint
+pnpm run build:pages
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+## 双端发布
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+- OpenAI Sites：完整动态版本，包含 `/api/jobs` 与 `/api/companies`。
+- GitHub Pages：公开静态镜像，展示产品界面和 Top100 厂商库，不直接访问招聘接口；页面会明确引导到动态实时版。
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+推送到 `main` 后，`.github/workflows/deploy-pages.yml` 会自动构建并更新 GitHub Pages。动态版本仍使用原有 Sites 发布流程，两种构建互不覆盖。
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+## 数据边界
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- 厂商官网职位优先于第三方招聘平台。
+- 不读取招聘平台登录状态、Cookie 或用户账号数据。
+- 不绕过验证码或安全验证。
+- 示例职位始终明确标记为演示数据。
+- 招聘状态、薪资与岗位要求以原始招聘页面为准。

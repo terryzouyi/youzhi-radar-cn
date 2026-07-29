@@ -208,6 +208,10 @@ const companyKinds: Array<CompanyKind | "全部"> = [
   "独立新锐",
   "互联网游戏业务",
 ];
+const isGitHubPages =
+  process.env.NEXT_PUBLIC_GITHUB_PAGES === "true";
+const liveSiteUrl =
+  "https://youzhi-radar-cn.sakurazou792501.chatgpt.site";
 
 const initialOfficialSources: SourceState[] = [
   {
@@ -247,6 +251,13 @@ const initialOfficialSources: SourceState[] = [
     url: "https://www.liepin.com/zhaopin/",
   },
 ];
+const staticMirrorSources: SourceState[] = initialOfficialSources.map(
+  (source) => ({
+    ...source,
+    status: "limited",
+    detail: "静态镜像不请求实时职位",
+  }),
+);
 
 export default function Home() {
   const [profile, setProfile] = useState<Profile>(defaultProfile);
@@ -255,16 +266,16 @@ export default function Home() {
   const [activeFilter, setActiveFilter] = useState("全部职位");
   const [savedJobs, setSavedJobs] = useState<Array<string | number>>([3]);
   const [search, setSearch] = useState("");
-  const [scanning, setScanning] = useState(true);
+  const [scanning, setScanning] = useState(!isGitHubPages);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [notice, setNotice] = useState("");
   const [jobResults, setJobResults] = useState<Job[]>(demoJobs);
   const [sourceStates, setSourceStates] = useState<SourceState[]>(
-    initialOfficialSources,
+    isGitHubPages ? staticMirrorSources : initialOfficialSources,
   );
   const [dataMode, setDataMode] = useState<
     "loading" | "live" | "fallback"
-  >("loading");
+  >(isGitHubPages ? "fallback" : "loading");
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [coverage, setCoverage] = useState({
     matchedJobs: 0,
@@ -283,6 +294,20 @@ export default function Home() {
     ) => {
       setScanning(true);
       if (announce) setNotice("");
+      if (isGitHubPages) {
+        setJobResults(demoJobs);
+        setSourceStates(staticMirrorSources);
+        setCoverage({ matchedJobs: 0, matchedCompanies: 0 });
+        setCompanyFocus(companyName);
+        setDataMode("fallback");
+        setLastUpdated(null);
+        if (announce) {
+          setNotice("GitHub Pages 是静态镜像，请在实时版查询最新职位");
+          window.setTimeout(() => setNotice(""), 4200);
+        }
+        setScanning(false);
+        return;
+      }
       const params = new URLSearchParams({
         q: currentProfile.targetRole,
         cities: currentProfile.cities,
@@ -498,6 +523,10 @@ export default function Home() {
     setSavedProfile(profile);
     window.localStorage.setItem("youzhi-profile", JSON.stringify(profile));
     setSearch("");
+    if (isGitHubPages) {
+      window.open(liveSiteUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
     await loadJobs(profile, true);
   };
 
@@ -524,6 +553,10 @@ export default function Home() {
   };
 
   const rerunScan = async () => {
+    if (isGitHubPages) {
+      window.open(liveSiteUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
     setSearch("");
     await loadJobs(savedProfile, true, companyFocus);
   };
@@ -581,7 +614,11 @@ export default function Home() {
               />
             ))}
           </div>
-          <small>手动刷新 · 服务端缓存 5 分钟</small>
+          <small>
+            {isGitHubPages
+              ? "公开镜像 · 实时数据在安全版"
+              : "手动刷新 · 服务端缓存 5 分钟"}
+          </small>
         </div>
 
         <div className="sidebar-foot">
@@ -615,18 +652,38 @@ export default function Home() {
                     minute: "2-digit",
                     hour12: false,
                   }).format(new Date(lastUpdated))}`
-                : "正在连接官网"}
+                : isGitHubPages
+                  ? "GitHub Pages 静态镜像"
+                  : "正在连接官网"}
             </span>
             <button
               className="secondary-button"
-              disabled={scanning}
+              disabled={!isGitHubPages && scanning}
               onClick={rerunScan}
               type="button"
             >
-              {scanning ? "连接官网中…" : "↻ 重新扫描"}
+              {isGitHubPages
+                ? "打开实时版 ↗"
+                : scanning
+                  ? "连接官网中…"
+                  : "↻ 重新扫描"}
             </button>
           </div>
         </header>
+
+        {isGitHubPages && (
+          <aside className="static-mirror-banner">
+            <div>
+              <strong>公开静态镜像</strong>
+              <span>
+                这里展示产品界面与 Top100 厂商库，不会从招聘网站读取实时职位。
+              </span>
+            </div>
+            <a href={liveSiteUrl} rel="noreferrer" target="_blank">
+              前往实时版查询 →
+            </a>
+          </aside>
+        )}
 
         <section className="profile-panel" aria-labelledby="profile-title">
           <div className="profile-intro">
@@ -701,7 +758,9 @@ export default function Home() {
               />
             </label>
             <button className="primary-button" disabled={scanning} type="submit">
-              {scanning ? (
+              {isGitHubPages ? (
+                "前往实时版匹配 →"
+              ) : scanning ? (
                 <>
                   <i className="spinner" /> 正在查询 4 个实时来源
                 </>
@@ -719,6 +778,8 @@ export default function Home() {
             <small>
               {dataMode === "live"
                 ? "本次从官网读取并标准化"
+                : isGitHubPages
+                  ? "静态镜像演示职位"
                 : "当前显示演示数据"}
             </small>
           </div>
@@ -730,7 +791,11 @@ export default function Home() {
           <div>
             <strong>{onlineSourceCount}</strong>
             <span>实时来源</span>
-            <small>官网与公开招聘平台</small>
+            <small>
+              {isGitHubPages
+                ? "请前往实时版查询"
+                : "官网与公开招聘平台"}
+            </small>
           </div>
           <div>
             <strong>{recentCount}</strong>
@@ -842,7 +907,15 @@ export default function Home() {
                     onClick={() => {
                       setActiveNav("岗位雷达");
                       setSearch("");
-                      void loadJobs(savedProfile, true, company.name);
+                      if (isGitHubPages) {
+                        window.open(
+                          liveSiteUrl,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                      } else {
+                        void loadJobs(savedProfile, true, company.name);
+                      }
                       document
                         .getElementById("results-title")
                         ?.scrollIntoView({
@@ -852,7 +925,7 @@ export default function Home() {
                     }}
                     type="button"
                   >
-                    实时查岗位
+                    {isGitHubPages ? "去实时版查询" : "实时查岗位"}
                   </button>
                   <button
                     aria-label={`打开 ${company.name} 招聘入口`}
@@ -917,6 +990,8 @@ export default function Home() {
               </span>
               {dataMode === "live"
                 ? `${companyFocus ? `聚焦 ${companyFocus} · ` : ""}实时数据 · ${onlineSourceCount} 个来源在线 · 当前展示 ${jobResults.length} 个职位，其中 ${coverage.matchedJobs} 个命中 Top100 厂商`
+                : isGitHubPages
+                  ? "GitHub Pages 静态镜像 · 当前职位为明确标注的演示数据"
                 : dataMode === "loading"
                   ? "正在连接实时来源并整理职位…"
                   : "实时来源暂不可用，当前职位均为演示数据"}
@@ -1160,6 +1235,8 @@ export default function Home() {
                 <strong>
                   {dataMode === "live"
                     ? "已接入真实公开职位"
+                    : isGitHubPages
+                      ? "当前为公开静态镜像"
                     : dataMode === "loading"
                       ? "正在连接实时来源"
                       : "实时来源暂时不可用"}
@@ -1167,6 +1244,8 @@ export default function Home() {
                 <p>
                   {dataMode === "live"
                     ? "腾讯、网易来自厂商官网；牛客、猎聘来自公开职位接口。BOSS、智联和前程无忧不会绕过验证码或读取登录态。"
+                    : isGitHubPages
+                      ? "静态镜像不访问招聘接口；请前往实时版查询最新职位。"
                     : "页面会明确保留演示标识，不把示例职位当作实时招聘信息。"}
                 </p>
               </div>
