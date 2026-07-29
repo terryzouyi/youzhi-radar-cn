@@ -96,7 +96,15 @@ test("removes the disposable starter preview", async () => {
   assert.match(route, /searchfront4c\.pc-search-job/);
   assert.match(route, /requestedCompany/);
   assert.match(route, /matchesTargetRole/);
+  assert.match(route, /matchesProfile/);
+  assert.match(route, /currentRole/);
+  assert.match(route, /years/);
+  assert.match(route, /salary/);
+  assert.match(route, /fetchAcrossRoles/);
   assert.match(route, /Cache-Control/);
+  assert.match(page, /isRecentJob/);
+  assert.match(page, /筛选后职位/);
+  assert.match(page, /未知项保留待核对/);
   assert.match(companyRoute, /companyCoverageStats/);
   assert.match(intelligenceRoute, /recruitmentSignals/);
   assert.match(intelligenceRoute, /verifiedWechatAccounts/);

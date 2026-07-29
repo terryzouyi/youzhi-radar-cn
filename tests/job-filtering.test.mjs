@@ -1,0 +1,128 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  isRecentJob,
+  matchesCities,
+  matchesExperience,
+  matchesProfile,
+  matchesSalary,
+  matchesTargetRole,
+  parseExperienceRange,
+  parseSalaryRange,
+  splitTerms,
+} from "../lib/job-filtering.js";
+
+const baseJob = {
+  title: "高级系统策划",
+  summary: "负责游戏成长系统与商业化设计",
+  tags: ["系统策划", "游戏"],
+  city: "上海市",
+  experience: "3-5年",
+  salary: "30-45K · 15薪",
+};
+
+test("preserves multiple target roles with OR semantics", () => {
+  assert.deepEqual(splitTerms("游戏策划 / 产品经理，制作人"), [
+    "游戏策划",
+    "产品经理",
+    "制作人",
+  ]);
+  assert.equal(
+    matchesTargetRole(
+      { ...baseJob, title: "游戏产品经理" },
+      "游戏策划 / 产品经理",
+    ),
+    true,
+  );
+});
+
+test("removes unrelated roles from a broad game-planner search", () => {
+  assert.equal(matchesTargetRole(baseJob, "游戏策划"), true);
+  assert.equal(
+    matchesTargetRole(
+      { ...baseJob, title: "Unity 客户端开发工程师" },
+      "游戏策划",
+    ),
+    false,
+  );
+  assert.equal(
+    matchesTargetRole(
+      { ...baseJob, title: "版本营销策划" },
+      "游戏策划",
+    ),
+    false,
+  );
+  assert.equal(
+    matchesTargetRole(
+      { ...baseJob, title: "资深运营策划" },
+      "游戏策划",
+    ),
+    false,
+  );
+});
+
+test("uses cities as a strict OR filter while preserving remote roles", () => {
+  assert.equal(matchesCities(baseJob, "上海、杭州、深圳"), true);
+  assert.equal(matchesCities(baseJob, "北京、成都"), false);
+  assert.equal(
+    matchesCities({ ...baseJob, city: "全国远程" }, "北京、成都"),
+    true,
+  );
+});
+
+test("filters incompatible known experience and keeps unknown experience", () => {
+  assert.deepEqual(parseExperienceRange("三至五年"), { min: 3, max: 5 });
+  assert.equal(matchesExperience(baseJob, "3–5 年"), true);
+  assert.equal(
+    matchesExperience({ ...baseJob, experience: "10年以上" }, "3–5 年"),
+    false,
+  );
+  assert.equal(
+    matchesExperience({ ...baseJob, experience: "经验未知" }, "3–5 年"),
+    true,
+  );
+});
+
+test("filters salary below expectation and keeps higher or unknown salary", () => {
+  assert.deepEqual(parseSalaryRange("25–35K"), { min: 25, max: 35 });
+  assert.equal(matchesSalary(baseJob, "25–35K"), true);
+  assert.equal(
+    matchesSalary({ ...baseJob, salary: "10-20K" }, "25–35K"),
+    false,
+  );
+  assert.equal(
+    matchesSalary({ ...baseJob, salary: "40-60K" }, "25–35K"),
+    true,
+  );
+  assert.equal(
+    matchesSalary({ ...baseJob, salary: "薪资面议" }, "25–35K"),
+    true,
+  );
+});
+
+test("applies the complete profile and excludes unknown update dates from recent", () => {
+  assert.equal(
+    matchesProfile(baseJob, {
+      targetRole: "游戏策划 / 产品经理",
+      cities: "上海、杭州",
+      years: "3–5 年",
+      salary: "25–35K",
+    }),
+    true,
+  );
+  assert.equal(
+    matchesProfile(baseJob, {
+      targetRole: "游戏策划",
+      cities: "北京",
+      years: "3–5 年",
+      salary: "25–35K",
+    }),
+    false,
+  );
+
+  const reference = "2026-07-29T12:00:00.000Z";
+  assert.equal(isRecentJob(null, reference), false);
+  assert.equal(isRecentJob("2026-07-28T12:00:00.000Z", reference), true);
+  assert.equal(isRecentJob("2026-07-20T12:00:00.000Z", reference), false);
+  assert.equal(isRecentJob("2026-07-30T12:00:00.000Z", reference), false);
+});

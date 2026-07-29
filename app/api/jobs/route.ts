@@ -2,6 +2,16 @@ import {
   CompanyProfile,
   findCoveredCompany,
 } from "../../../data/companies";
+import {
+  matchesCities,
+  matchesExperience,
+  matchesProfile,
+  matchesSalary,
+  matchesTargetRole,
+  parseExperienceRange,
+  parseSalaryRange,
+  splitTerms,
+} from "../../../lib/job-filtering.js";
 
 type NormalizedJob = {
   id: string;
@@ -9,13 +19,15 @@ type NormalizedJob = {
   company: string;
   companyCode: string;
   color: string;
+  city: string;
+  experience: string;
   meta: string;
   salary: string;
   source: string;
   sourceType: "官网直招" | "招聘平台";
   match: number;
   freshness: string;
-  updatedAt: string;
+  updatedAt: string | null;
   tags: string[];
   reasons: string[];
   summary: string;
@@ -23,6 +35,15 @@ type NormalizedJob = {
   provider: "tencent" | "netease" | "nowcoder" | "liepin";
   coverageOrder?: number;
   coveredCompany?: string;
+};
+
+type SearchProfile = {
+  currentRole: string;
+  targetRole: string;
+  cities: string;
+  years: string;
+  salary: string;
+  keywords: string;
 };
 
 type SourceState = {
@@ -128,8 +149,12 @@ function cleanList(value: string) {
 }
 
 function toIsoDate(value?: string | number) {
-  if (!value) return new Date().toISOString();
-  if (typeof value === "number") return new Date(value).toISOString();
+  if (!value) return null;
+  if (typeof value === "number") {
+    const milliseconds = value < 1_000_000_000_000 ? value * 1000 : value;
+    const parsed = new Date(milliseconds);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
 
   const chineseDate = value.match(/(\d{4})年(\d{2})月(\d{2})日/);
   if (chineseDate) {
@@ -151,11 +176,12 @@ function toIsoDate(value?: string | number) {
 
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime())
-    ? new Date().toISOString()
+    ? null
     : parsed.toISOString();
 }
 
-function freshness(iso: string) {
+function freshness(iso: string | null) {
+  if (!iso) return "更新时间待确认";
   const elapsed = Date.now() - new Date(iso).getTime();
   const days = Math.max(0, Math.floor(elapsed / 86_400_000));
   if (days === 0) return "今天更新";
@@ -171,26 +197,52 @@ function scoreJob(input: {
   title: string;
   body: string;
   city: string;
-  query: string;
-  keywords: string;
-  cities: string;
+  experience: string;
+  salary: string;
+  profile: SearchProfile;
 }) {
   const haystack = `${input.title} ${input.body}`.toLowerCase();
-  const targetTerms = cleanList(`${input.query} ${input.keywords}`);
-  const cityTerms = cleanList(input.cities);
-  const titleHit = targetTerms.some((term) =>
-    input.title.toLowerCase().includes(term.toLowerCase()),
+  const keywordTerms = cleanList(input.profile.keywords);
+  const titleHit = matchesTargetRole(
+    {
+      title: input.title,
+      summary: input.body,
+      city: input.city,
+      experience: input.experience,
+      salary: input.salary,
+    },
+    input.profile.targetRole,
   );
-  const hits = targetTerms.filter((term) =>
+  const hits = keywordTerms.filter((term) =>
     haystack.includes(term.toLowerCase()),
   ).length;
-  const cityHit = cityTerms.some((city) => input.city.includes(city));
+  const filterableJob = {
+    title: input.title,
+    summary: input.body,
+    city: input.city,
+    experience: input.experience,
+    salary: input.salary,
+  };
+  const hasCities = splitTerms(input.profile.cities).length > 0;
+  const cityHit = hasCities && matchesCities(filterableJob, input.profile.cities);
+  const experienceKnown = Boolean(parseExperienceRange(input.experience));
+  const experienceHit =
+    experienceKnown && matchesExperience(filterableJob, input.profile.years);
+  const salaryKnown = Boolean(parseSalaryRange(input.salary));
+  const salaryHit =
+    salaryKnown && matchesSalary(filterableJob, input.profile.salary);
+  const currentRoleHit = cleanList(input.profile.currentRole).some((term) =>
+    haystack.includes(term.toLowerCase()),
+  );
   return Math.min(
     98,
-    64 +
-      (titleHit ? 14 : 0) +
-      Math.min(12, hits * 3) +
-      (cityHit ? 8 : 0),
+    58 +
+      (titleHit ? 17 : 0) +
+      Math.min(9, hits * 3) +
+      (cityHit ? 8 : 0) +
+      (experienceHit ? 5 : 0) +
+      (salaryHit ? 5 : 0) +
+      (currentRoleHit ? 3 : 0),
   );
 }
 
@@ -199,33 +251,50 @@ function recommendationReasons(
     title: string;
     body: string;
     city: string;
-    query: string;
-    keywords: string;
-    cities: string;
+    experience: string;
+    salary: string;
+    profile: SearchProfile;
   },
   sourceReason: string,
 ) {
   const reasons: string[] = [];
   const haystack = `${input.title} ${input.body}`;
-  if (
-    cleanList(input.query).some((term) =>
-      input.title.toLowerCase().includes(term.toLowerCase()),
-    )
-  ) {
+  const filterableJob = {
+    title: input.title,
+    summary: input.body,
+    city: input.city,
+    experience: input.experience,
+    salary: input.salary,
+  };
+  if (matchesTargetRole(filterableJob, input.profile.targetRole)) {
     reasons.push("目标岗位命中");
   }
   if (
-    cleanList(input.keywords).some((term) =>
+    cleanList(input.profile.keywords).some((term) =>
       haystack.toLowerCase().includes(term.toLowerCase()),
     )
   ) {
     reasons.push("能力关键词命中");
   }
-  if (cleanList(input.cities).some((city) => input.city.includes(city))) {
+  if (
+    splitTerms(input.profile.cities).length &&
+    matchesCities(filterableJob, input.profile.cities)
+  ) {
     reasons.push("意向城市命中");
   }
-  reasons.push(sourceReason);
-  return reasons.slice(0, 3);
+  if (
+    parseExperienceRange(input.experience) &&
+    matchesExperience(filterableJob, input.profile.years)
+  ) {
+    reasons.push("工作年限匹配");
+  }
+  if (
+    parseSalaryRange(input.salary) &&
+    matchesSalary(filterableJob, input.profile.salary)
+  ) {
+    reasons.push("薪资达到预期");
+  }
+  return [...reasons.slice(0, 3), sourceReason];
 }
 
 function addCoverage(job: NormalizedJob) {
@@ -239,7 +308,7 @@ function addCoverage(job: NormalizedJob) {
     : job;
 }
 
-async function fetchTencent(query: string, cities: string, keywords: string) {
+async function fetchTencent(query: string, profile: SearchProfile) {
   const params = new URLSearchParams({
     keyword: query,
     pageIndex: "1",
@@ -266,13 +335,15 @@ async function fetchTencent(query: string, cities: string, keywords: string) {
     const updatedAt = toIsoDate(post.LastUpdateTime);
     const body = compactText(post.Responsibility);
     const city = post.LocationName || "中国";
+    const experience = post.RequireWorkYearsName || "经验不限";
+    const salary = "薪资面议";
     const scoreInput = {
       title: post.RecruitPostName,
       body,
       city,
-      query,
-      keywords,
-      cities,
+      experience,
+      salary,
+      profile,
     };
     return addCoverage({
       id: `tencent-${post.PostId}`,
@@ -280,8 +351,10 @@ async function fetchTencent(query: string, cities: string, keywords: string) {
       company: post.ProductName ? `腾讯 · ${post.ProductName}` : "腾讯",
       companyCode: "TX",
       color: "#2d6bff",
-      meta: `${city} · ${post.RequireWorkYearsName || "经验不限"} · ${post.BGName || "腾讯"}`,
-      salary: "薪资面议",
+      city,
+      experience,
+      meta: `${city} · ${experience} · ${post.BGName || "腾讯"}`,
+      salary,
       source: "腾讯招聘",
       sourceType: "官网直招",
       match: scoreJob(scoreInput),
@@ -314,7 +387,7 @@ async function fetchTencent(query: string, cities: string, keywords: string) {
   };
 }
 
-async function fetchNetease(query: string, cities: string, keywords: string) {
+async function fetchNetease(query: string, profile: SearchProfile) {
   const response = await fetch(
     "https://hr.163.com/api/hr163/position/queryPage",
     {
@@ -346,13 +419,15 @@ async function fetchNetease(query: string, cities: string, keywords: string) {
       [post.description, post.requirement].filter(Boolean).join(" "),
     );
     const city = post.workPlaceNameList?.join(" / ") || "中国";
+    const experience = post.reqWorkYearsName || "经验不限";
+    const salary = "薪资面议";
     const scoreInput = {
       title: post.name,
       body,
       city,
-      query,
-      keywords,
-      cities,
+      experience,
+      salary,
+      profile,
     };
     return addCoverage({
       id: `netease-${post.id}`,
@@ -360,8 +435,10 @@ async function fetchNetease(query: string, cities: string, keywords: string) {
       company: post.productName || "网易",
       companyCode: "NE",
       color: "#d23b32",
-      meta: `${city} · ${post.reqWorkYearsName || "经验不限"} · ${post.reqEducationName || "学历不限"}`,
-      salary: "薪资面议",
+      city,
+      experience,
+      meta: `${city} · ${experience} · ${post.reqEducationName || "学历不限"}`,
+      salary,
       source: "网易招聘",
       sourceType: "官网直招",
       match: scoreJob(scoreInput),
@@ -422,8 +499,7 @@ function nowcoderSalary(post: NowcoderPost) {
 
 async function fetchNowcoder(
   query: string,
-  cities: string,
-  keywords: string,
+  profile: SearchProfile,
   searchQuery = query,
 ) {
   const body = new URLSearchParams({
@@ -475,13 +551,15 @@ async function fetchNowcoder(
     const updatedAt = toIsoDate(post.refreshTime || post.updateTime);
     const summary = parseNowcoderExt(post.ext);
     const city = post.jobCity || "中国";
+    const experience = "经验未知";
+    const salary = nowcoderSalary(post);
     const scoreInput = {
       title: post.jobName,
       body: summary,
       city,
-      query,
-      keywords,
-      cities,
+      experience,
+      salary,
+      profile,
     };
     return addCoverage({
       id: `nowcoder-${post.id}`,
@@ -489,8 +567,10 @@ async function fetchNowcoder(
       company,
       companyCode: "NK",
       color: "#f05a47",
-      meta: `${city} · ${education[post.eduLevel || 0] || "学历不限"} · 社招`,
-      salary: nowcoderSalary(post),
+      city,
+      experience,
+      meta: `${city} · ${experience} · ${education[post.eduLevel || 0] || "学历不限"}`,
+      salary,
       source: "牛客招聘",
       sourceType: "招聘平台",
       match: scoreJob(scoreInput),
@@ -529,8 +609,7 @@ async function fetchNowcoder(
 
 async function fetchLiepin(
   query: string,
-  cities: string,
-  keywords: string,
+  profile: SearchProfile,
   searchQuery = query,
 ) {
   const traceId = crypto.randomUUID().replaceAll("-", "");
@@ -603,18 +682,22 @@ async function fetchLiepin(
         title: job.title!,
         body: summary,
         city,
-        query,
-        keywords,
-        cities,
+        experience: job.requireWorkYears || "经验未知",
+        salary: job.salary || "薪资面议",
+        profile,
       };
+      const experience = job.requireWorkYears || "经验未知";
+      const salary = job.salary || "薪资面议";
       return addCoverage({
         id: `liepin-${job.jobId}`,
         title: job.title!,
         company,
         companyCode: "LP",
         color: "#f39a31",
-        meta: `${city} · ${job.requireWorkYears || "经验不限"} · ${job.requireEduLevel || "学历不限"}`,
-        salary: job.salary || "薪资面议",
+        city,
+        experience,
+        meta: `${city} · ${experience} · ${job.requireEduLevel || "学历不限"}`,
+        salary,
         source: "猎聘",
         sourceType: "招聘平台",
         match: scoreJob(scoreInput),
@@ -725,45 +808,74 @@ function dedupeJobs(jobs: NormalizedJob[]) {
   return [...seen.values()];
 }
 
-function matchesTargetRole(job: NormalizedJob, query: string) {
-  const targetTerms = cleanList(query);
-  if (!targetTerms.length) return true;
-  const searchable = [job.title, job.summary, ...job.tags]
-    .join(" ")
-    .toLowerCase();
-  const title = job.title.toLowerCase();
-  return targetTerms.some((term) => {
-    const normalized = term.toLowerCase();
-    const withoutGamePrefix = normalized.replace(/^游戏/, "");
-    return (
-      searchable.includes(normalized) ||
-      (withoutGamePrefix.length >= 2 &&
-        title.includes(withoutGamePrefix))
+async function fetchAcrossRoles(
+  roles: string[],
+  fetchRole: (role: string) => Promise<{
+    jobs: NormalizedJob[];
+    source: SourceState;
+  }>,
+) {
+  const results = await Promise.allSettled(roles.map(fetchRole));
+  const succeeded = results
+    .filter(
+      (
+        result,
+      ): result is PromiseFulfilledResult<{
+        jobs: NormalizedJob[];
+        source: SourceState;
+      }> => result.status === "fulfilled",
+    )
+    .map((result) => result.value);
+  if (!succeeded.length) {
+    const failed = results.find(
+      (result): result is PromiseRejectedResult =>
+        result.status === "rejected",
     );
-  });
+    throw failed?.reason || new Error("Source unavailable");
+  }
+
+  const jobs = dedupeJobs(succeeded.flatMap((result) => result.jobs));
+  const source = succeeded[0].source;
+  return {
+    jobs,
+    source:
+      roles.length === 1
+        ? source
+        : {
+            ...source,
+            count: jobs.length,
+            detail: `已查询 ${succeeded.length}/${roles.length} 个目标方向，本页合并 ${jobs.length} 个职位`,
+          },
+  };
 }
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const rawQuery =
     url.searchParams.get("q")?.trim().slice(0, 80) || "游戏策划";
-  const query =
-    rawQuery
-      .replaceAll("/", "、")
-      .split(/[、,，]/)
-      .map((part) => part.trim())
-      .find(Boolean) || "游戏策划";
+  const roleQueries = splitTerms(rawQuery).slice(0, 3);
+  if (!roleQueries.length) roleQueries.push("游戏策划");
+  const query = roleQueries.join(" / ");
   const cities = url.searchParams.get("cities")?.trim().slice(0, 100) || "";
+  const years = url.searchParams.get("years")?.trim().slice(0, 40) || "";
+  const salary = url.searchParams.get("salary")?.trim().slice(0, 40) || "";
+  const currentRole =
+    url.searchParams.get("currentRole")?.trim().slice(0, 80) || "";
   const keywords =
     url.searchParams.get("keywords")?.trim().slice(0, 120) || "";
+  const profile: SearchProfile = {
+    currentRole,
+    targetRole: query,
+    cities,
+    years,
+    salary,
+    keywords,
+  };
   const requestedCompany =
     url.searchParams.get("company")?.trim().slice(0, 80) || "";
   const selectedCompany = requestedCompany
     ? findCoveredCompany(requestedCompany)
     : undefined;
-  const platformQuery = selectedCompany
-    ? `${selectedCompany.name} ${query}`
-    : query;
 
   const results = await Promise.allSettled([
     selectedCompany && selectedCompany.id !== "tencent"
@@ -771,15 +883,31 @@ export async function GET(request: Request) {
           jobs: [] as NormalizedJob[],
           source: skippedOfficialSource("tencent", selectedCompany, query),
         })
-      : fetchTencent(query, cities, keywords),
+      : fetchAcrossRoles(roleQueries, (role) =>
+          fetchTencent(role, profile),
+        ),
     selectedCompany && selectedCompany.id !== "netease"
       ? Promise.resolve({
           jobs: [] as NormalizedJob[],
           source: skippedOfficialSource("netease", selectedCompany, query),
         })
-      : fetchNetease(query, cities, keywords),
-    fetchNowcoder(query, cities, keywords, platformQuery),
-    fetchLiepin(query, cities, keywords, platformQuery),
+      : fetchAcrossRoles(roleQueries, (role) =>
+          fetchNetease(role, profile),
+        ),
+    fetchAcrossRoles(roleQueries, (role) =>
+      fetchNowcoder(
+        role,
+        profile,
+        selectedCompany ? `${selectedCompany.name} ${role}` : role,
+      ),
+    ),
+    fetchAcrossRoles(roleQueries, (role) =>
+      fetchLiepin(
+        role,
+        profile,
+        selectedCompany ? `${selectedCompany.name} ${role}` : role,
+      ),
+    ),
   ]);
 
   const sourceIds: SourceState["id"][] = [
@@ -801,22 +929,23 @@ export async function GET(request: Request) {
     }
   });
 
-  const jobs = dedupeJobs(
-    selectedCompany
-      ? collectedJobs.filter(
-          (job) =>
-            (job.coveredCompany === selectedCompany.name ||
-              findCoveredCompany(job.company)?.id === selectedCompany.id) &&
-            matchesTargetRole(job, query),
-        )
-      : collectedJobs,
+  const collectedUniqueJobs = dedupeJobs(collectedJobs);
+  const jobs = collectedUniqueJobs.filter(
+    (job) =>
+      (!selectedCompany ||
+        job.coveredCompany === selectedCompany.name ||
+        findCoveredCompany(job.company)?.id === selectedCompany.id) &&
+      matchesProfile(job, profile),
   );
   jobs.sort((a, b) => {
     if (b.match !== a.match) return b.match - a.match;
     if (a.sourceType !== b.sourceType) {
       return a.sourceType === "官网直招" ? -1 : 1;
     }
-    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    return (
+      new Date(b.updatedAt || 0).getTime() -
+      new Date(a.updatedAt || 0).getTime()
+    );
   });
 
   return Response.json(
@@ -825,13 +954,19 @@ export async function GET(request: Request) {
       sources,
       fetchedAt: new Date().toISOString(),
       query,
+      filters: {
+        roles: roleQueries,
+        cities: splitTerms(cities),
+        years,
+        salary,
+        keywords: splitTerms(keywords),
+      },
+      filtering: {
+        collectedJobs: collectedUniqueJobs.length,
+        matchedJobs: jobs.length,
+      },
       company: selectedCompany?.name,
-      live:
-        jobs.length > 0 ||
-        Boolean(
-          selectedCompany &&
-            sources.some((source) => source.status === "online"),
-        ),
+      live: sources.some((source) => source.status === "online"),
       coverage: {
         matchedJobs: jobs.filter((job) => job.coverageOrder).length,
         matchedCompanies: new Set(

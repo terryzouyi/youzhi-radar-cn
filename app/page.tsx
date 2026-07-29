@@ -13,6 +13,7 @@ import {
   companyProfiles,
 } from "../data/companies";
 import { recruitmentSignals } from "../data/recruitment-signals";
+import { isRecentJob } from "../lib/job-filtering.js";
 
 type Profile = {
   currentRole: string;
@@ -29,6 +30,8 @@ type Job = {
   company: string;
   companyCode: string;
   color: string;
+  city?: string;
+  experience?: string;
   meta: string;
   salary: string;
   source: string;
@@ -39,7 +42,7 @@ type Job = {
   reasons: string[];
   summary: string;
   originalUrl?: string;
-  updatedAt?: string;
+  updatedAt?: string | null;
   provider?:
     | "tencent"
     | "netease"
@@ -311,7 +314,10 @@ export default function Home() {
       }
       const params = new URLSearchParams({
         q: currentProfile.targetRole,
+        currentRole: currentProfile.currentRole,
         cities: currentProfile.cities,
+        years: currentProfile.years,
+        salary: currentProfile.salary,
         keywords: currentProfile.keywords,
       });
       if (companyName) params.set("company", companyName);
@@ -330,7 +336,7 @@ export default function Home() {
             matchedCompanies: 0,
           },
         );
-        if (payload.live && (payload.jobs.length > 0 || payload.company)) {
+        if (payload.live) {
           setJobResults(payload.jobs);
           setDataMode("live");
           if (announce) {
@@ -475,11 +481,7 @@ export default function Home() {
     ? new Date(lastUpdated).getTime()
     : undefined;
   const recentCount = jobResults.filter((job) => {
-    if (!job.updatedAt || !referenceTime) return true;
-    return (
-      referenceTime - new Date(job.updatedAt).getTime() <
-      3 * 24 * 60 * 60 * 1000
-    );
+    return isRecentJob(job.updatedAt, referenceTime);
   }).length;
 
   const visibleJobs = useMemo(() => {
@@ -502,10 +504,7 @@ export default function Home() {
         (activeFilter === "高匹配" && job.match >= 85) ||
         (activeFilter === "官网直招" && job.sourceType === "官网直招") ||
         (activeFilter === "近三天" &&
-          (!job.updatedAt ||
-            !referenceTime ||
-            referenceTime - new Date(job.updatedAt).getTime() <
-              3 * 24 * 60 * 60 * 1000));
+          isRecentJob(job.updatedAt, referenceTime));
       const passesSaved =
         activeNav !== "收藏夹" || savedJobs.includes(job.id);
       return passesSearch && passesFilter && passesSaved;
@@ -518,11 +517,17 @@ export default function Home() {
     savedJobs,
     search,
   ]);
+  const isJobViewFiltered =
+    activeFilter !== "全部职位" ||
+    activeNav === "收藏夹" ||
+    search.trim().length > 0;
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setSavedProfile(profile);
     window.localStorage.setItem("youzhi-profile", JSON.stringify(profile));
+    setActiveNav("岗位雷达");
+    setActiveFilter("全部职位");
     setSearch("");
     if (isGitHubPages) {
       window.open(liveSiteUrl, "_blank", "noopener,noreferrer");
@@ -693,7 +698,7 @@ export default function Home() {
               <p className="kicker">你的目标画像</p>
               <h2 id="profile-title">先定义方向，再开始搜索。</h2>
               <p>
-                我们会用这些信息合并同岗、过滤噪音，并给出每个职位的匹配理由。
+                目标方向按任一命中，城市为明确筛选；年限和薪资在来源提供信息时参与筛选，未知项保留待核对。
               </p>
             </div>
           </div>
@@ -774,14 +779,16 @@ export default function Home() {
 
         <section className="metric-strip" aria-label="今日扫描摘要">
           <div>
-            <strong>{jobResults.length}</strong>
-            <span>已获取职位</span>
+            <strong>{visibleJobs.length}</strong>
+            <span>{isJobViewFiltered ? "筛选后职位" : "已获取职位"}</span>
             <small>
-              {dataMode === "live"
-                ? "本次从官网读取并标准化"
-                : isGitHubPages
-                  ? "静态镜像演示职位"
-                : "当前显示演示数据"}
+              {isJobViewFiltered
+                ? `原始匹配结果 ${jobResults.length} 条`
+                : dataMode === "live"
+                  ? "本次从官网读取并标准化"
+                  : isGitHubPages
+                    ? "静态镜像演示职位"
+                    : "当前显示演示数据"}
             </small>
           </div>
           <div>
@@ -993,6 +1000,7 @@ export default function Home() {
                   <button
                     onClick={() => {
                       setActiveNav("岗位雷达");
+                      setActiveFilter("全部职位");
                       setSearch("");
                       if (isGitHubPages) {
                         window.open(
@@ -1111,7 +1119,7 @@ export default function Home() {
                     : "!"}
               </span>
               {dataMode === "live"
-                ? `${companyFocus ? `聚焦 ${companyFocus} · ` : ""}实时数据 · ${onlineSourceCount} 个来源在线 · 当前展示 ${jobResults.length} 个职位，其中 ${coverage.matchedJobs} 个命中 Top100 厂商`
+                ? `${companyFocus ? `聚焦 ${companyFocus} · ` : ""}实时数据 · ${onlineSourceCount} 个来源在线 · 当前展示 ${visibleJobs.length}/${jobResults.length} 个职位，其中 ${coverage.matchedJobs} 个命中 Top100 厂商`
                 : isGitHubPages
                   ? "GitHub Pages 静态镜像 · 当前职位为明确标注的演示数据"
                 : dataMode === "loading"
@@ -1135,7 +1143,9 @@ export default function Home() {
               <button
                 className="filter-control"
                 onClick={() => {
-                  setNotice("城市、年限与来源组合筛选将在下一版开放");
+                  setNotice(
+                    "城市、年限和薪资已按上方目标画像生效；来源不提供的信息会保留待核对",
+                  );
                   window.setTimeout(() => setNotice(""), 3000);
                 }}
                 type="button"
