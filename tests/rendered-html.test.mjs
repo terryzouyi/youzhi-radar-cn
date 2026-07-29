@@ -53,6 +53,7 @@ test("removes the disposable starter preview", async () => {
     intelligenceRoute,
     companies,
     signals,
+    taxonomy,
     layout,
     packageJson,
     nextConfig,
@@ -76,6 +77,7 @@ test("removes the disposable starter preview", async () => {
       new URL("../data/recruitment-signals.ts", import.meta.url),
       "utf8",
     ),
+    readFile(new URL("../data/job-taxonomy.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../next.config.ts", import.meta.url), "utf8"),
@@ -109,7 +111,8 @@ test("removes the disposable starter preview", async () => {
   assert.match(page, /isRecentJob/);
   assert.match(page, /筛选后职位/);
   assert.match(page, /年限、薪资默认用于分层/);
-  assert.match(page, /主方向（单选）/);
+  assert.match(page, /主方向（按职业族分组）/);
+  assert.match(page, /专长偏好（按能力维度分类，可多选）/);
   assert.match(page, /年限严格/);
   assert.match(page, /matchDimensions/);
   assert.doesNotMatch(page, /% 匹配/);
@@ -122,6 +125,11 @@ test("removes the disposable starter preview", async () => {
   assert.match(companies, /鹰角网络招聘/);
   assert.match(signals, /mp\.weixin\.qq\.com/);
   assert.match(signals, /收费内推/);
+  assert.match(taxonomy, /游戏引擎 \/ 图形开发/);
+  assert.match(taxonomy, /海外运营 \/ 本地化/);
+  assert.match(taxonomy, /游戏测试开发/);
+  assert.match(taxonomy, /平台与项目经验/);
+  assert.equal((taxonomy.match(/defineRole\(\{/g) || []).length, 36);
   const seedBlock = companies.match(/const seeds:[\s\S]+?\n\];/);
   assert.ok(seedBlock);
   assert.equal((seedBlock[0].match(/^\s+\["/gm) || []).length, 100);

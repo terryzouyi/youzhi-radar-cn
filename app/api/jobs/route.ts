@@ -891,13 +891,22 @@ export async function GET(request: Request) {
   const legacyRoles = splitTerms(rawQuery);
   const primaryRole = legacyRoles[0] || "游戏策划";
   const relatedParam =
-    url.searchParams.get("related")?.trim().slice(0, 120) || "";
+    url.searchParams.get("related")?.trim().slice(0, 240) || "";
   const relatedRoles = [
     ...legacyRoles.slice(1),
     ...splitTerms(relatedParam),
-  ].filter((role, index, roles) => role !== primaryRole && roles.indexOf(role) === index);
+  ].filter(
+    (role, index, roles) =>
+      role !== primaryRole && roles.indexOf(role) === index,
+  );
   const roleQueries = [primaryRole, ...relatedRoles].slice(0, 3);
   const query = primaryRole;
+  const primaryMatchTerms = splitTerms(
+    url.searchParams.get("matchTerms")?.trim().slice(0, 320) || "",
+  );
+  const relatedMatchTerms = splitTerms(
+    url.searchParams.get("relatedMatchTerms")?.trim().slice(0, 480) || "",
+  );
   const cities = url.searchParams.get("cities")?.trim().slice(0, 100) || "";
   const years = url.searchParams.get("years")?.trim().slice(0, 40) || "";
   const salary = url.searchParams.get("salary")?.trim().slice(0, 40) || "";
@@ -910,8 +919,14 @@ export async function GET(request: Request) {
   const allowRemote = url.searchParams.get("allowRemote") !== "false";
   const profile: SearchProfile = {
     currentRole,
-    targetRole: primaryRole,
-    relatedRoles: relatedRoles.join("、"),
+    targetRole: (primaryMatchTerms.length
+      ? primaryMatchTerms
+      : [primaryRole]
+    ).join("、"),
+    relatedRoles: (relatedMatchTerms.length
+      ? relatedMatchTerms
+      : relatedRoles
+    ).join("、"),
     cities,
     years,
     salary,
@@ -1035,6 +1050,8 @@ export async function GET(request: Request) {
       filters: {
         roles: [primaryRole],
         relatedRoles,
+        primaryMatchTerms,
+        relatedMatchTerms,
         cities: splitTerms(cities),
         years,
         salary,

@@ -525,6 +525,27 @@ select:focus-visible {
   line-height: 1.5;
 }
 
+.specialty-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.specialty-groups section {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid #3c4942;
+  background: rgb(16 24 20 / 0.18);
+}
+
+.specialty-groups h3 {
+  margin: 0 0 9px;
+  color: #b8c4bd;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
 .specialty-options,
 .filter-preferences {
   display: flex;
@@ -1989,6 +2010,10 @@ select:focus-visible {
   .filter-preferences,
   .profile-form .primary-button {
     grid-column: 1 / -1;
+  }
+
+  .specialty-groups {
+    grid-template-columns: 1fr;
   }
 
   .metric-strip {

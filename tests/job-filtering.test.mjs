@@ -63,6 +63,37 @@ test("removes unrelated roles from a broad game-planner search", () => {
   );
 });
 
+test("matches mainstream role aliases without broadening to a whole family", () => {
+  assert.equal(
+    matchesTargetRole(
+      { ...baseJob, title: "休闲游戏玩法策划" },
+      "系统策划、玩法策划、功能策划、资源策划",
+    ),
+    true,
+  );
+  assert.equal(
+    matchesTargetRole(
+      { ...baseJob, title: "Unity客户端开发工程师" },
+      "游戏客户端开发、客户端开发、Unity客户端、UE客户端",
+    ),
+    true,
+  );
+  assert.equal(
+    matchesTargetRole(
+      { ...baseJob, title: "资深角色模型设计师" },
+      "3D角色、角色模型、角色建模、角色制作",
+    ),
+    true,
+  );
+  assert.equal(
+    matchesTargetRole(
+      { ...baseJob, title: "高级服务端开发工程师" },
+      "系统策划、玩法策划、功能策划、资源策划",
+    ),
+    false,
+  );
+});
+
 test("uses cities as a strict OR filter while preserving remote roles", () => {
   assert.equal(matchesCities(baseJob, "上海、杭州、深圳"), true);
   assert.equal(matchesCities(baseJob, "北京、成都"), false);

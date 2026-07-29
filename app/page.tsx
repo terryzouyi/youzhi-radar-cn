@@ -13,7 +13,11 @@ import {
   companyProfiles,
 } from "../data/companies";
 import {
+  defaultSpecialtiesFor,
   findRoleTrack,
+  getRelatedRoleTracks,
+  getSpecialtyGroups,
+  roleFamilies,
   roleTracks,
 } from "../data/job-taxonomy";
 import { recruitmentSignals } from "../data/recruitment-signals";
@@ -95,11 +99,18 @@ type JobsResponse = {
   };
 };
 
+const defaultRoleTrack = findRoleTrack("system-design");
 const defaultProfile: Profile = {
   currentRole: "游戏产品经理",
   years: "3–5 年",
-  targetRole: "游戏策划",
-  specialties: ["系统策划", "商业化策划", "数值策划"],
+  targetRole: defaultRoleTrack.label,
+  specialties: [
+    "核心系统",
+    "商业化系统",
+    "SLG",
+    "全球化 / 出海",
+    "长线运营",
+  ],
   cities: "上海、杭州、深圳",
   salary: "25–35K",
   keywords: "全球化，长线运营",
@@ -307,14 +318,23 @@ function normalizeStoredProfile(value: unknown): Profile {
         track.label === legacyTarget ||
         legacyTarget.includes(track.label) ||
         (legacyTarget === "产品经理" && track.label === "游戏产品经理"),
-    ) || findRoleTrack(defaultProfile.targetRole);
+    ) || findRoleTrack(legacyTarget);
+  const allowedSpecialties = new Set(
+    getSpecialtyGroups(role).flatMap((group) => group.options),
+  );
+  const storedSpecialties = Array.isArray(stored.specialties)
+    ? stored.specialties.filter(
+        (item): item is string =>
+          typeof item === "string" && allowedSpecialties.has(item),
+      )
+    : [];
   return {
     ...defaultProfile,
     ...stored,
     targetRole: role.label,
-    specialties: Array.isArray(stored.specialties)
-      ? stored.specialties.filter((item): item is string => typeof item === "string")
-      : defaultProfile.specialties,
+    specialties: storedSpecialties.length
+      ? storedSpecialties
+      : defaultSpecialtiesFor(role),
     strictYears: stored.strictYears === true,
     strictSalary: stored.strictSalary === true,
     allowRemote: stored.allowRemote !== false,
@@ -409,6 +429,7 @@ export default function Home() {
   const [companyKind, setCompanyKind] = useState<CompanyKind | "全部">("全部");
   const [companyLimit, setCompanyLimit] = useState(24);
   const activeRoleTrack = findRoleTrack(profile.targetRole);
+  const activeSpecialtyGroups = getSpecialtyGroups(activeRoleTrack);
 
   const loadJobs = useCallback(
     async (
@@ -433,9 +454,14 @@ export default function Home() {
         return;
       }
       const roleTrack = findRoleTrack(currentProfile.targetRole);
+      const relatedTracks = getRelatedRoleTracks(roleTrack);
       const params = new URLSearchParams({
         q: roleTrack.query,
-        related: roleTrack.relatedRoles.join("，"),
+        matchTerms: roleTrack.matchTerms.join("，"),
+        related: relatedTracks.map((track) => track.query).join("，"),
+        relatedMatchTerms: relatedTracks
+          .flatMap((track) => track.matchTerms)
+          .join("，"),
         currentRole: currentProfile.currentRole,
         cities: currentProfile.cities,
         years: currentProfile.years,
@@ -850,7 +876,7 @@ export default function Home() {
               <p className="kicker">你的目标画像</p>
               <h2 id="profile-title">先定义方向，再开始搜索。</h2>
               <p>
-                只选一个主方向，专长用于排序；城市是明确边界，年限和薪资默认用于分层，不会悄悄删掉机会。
+                主方向按 7 个职业族收录 36 个实际岗位；专长再按岗位分工、方法 / 技术栈、游戏品类和项目经验分类。
               </p>
             </div>
           </div>
@@ -880,22 +906,43 @@ export default function Home() {
               </select>
             </label>
             <label className="wide">
-              <span>主方向（单选）</span>
+              <span>主方向（按职业族分组）</span>
               <select
                 onChange={(event) => {
                   const nextTrack = findRoleTrack(event.target.value);
+                  const sharedOptions = new Set(
+                    getSpecialtyGroups(nextTrack)
+                      .filter((group) =>
+                        ["genre", "platform"].includes(group.id),
+                      )
+                      .flatMap((group) => group.options),
+                  );
+                  const retainedSpecialties = profile.specialties.filter(
+                    (specialty) => sharedOptions.has(specialty),
+                  );
                   setProfile({
                     ...profile,
                     targetRole: nextTrack.label,
-                    specialties: nextTrack.specialties.slice(0, 2),
+                    specialties: [
+                      ...new Set([
+                        ...defaultSpecialtiesFor(nextTrack),
+                        ...retainedSpecialties,
+                      ]),
+                    ],
                   });
                 }}
                 value={profile.targetRole}
               >
-                {roleTracks.map((track) => (
-                  <option key={track.id} value={track.label}>
-                    {track.label}
-                  </option>
+                {roleFamilies.map((family) => (
+                  <optgroup key={family} label={family}>
+                    {roleTracks
+                      .filter((track) => track.family === family)
+                      .map((track) => (
+                        <option key={track.id} value={track.label}>
+                          {track.label}
+                        </option>
+                      ))}
+                  </optgroup>
                 ))}
               </select>
             </label>
@@ -918,36 +965,46 @@ export default function Home() {
               />
             </label>
             <fieldset className="profile-fieldset">
-              <legend>专长偏好（可多选，只影响排序）</legend>
-              <div className="specialty-options">
-                {activeRoleTrack.specialties.map((specialty) => {
-                  const selected = profile.specialties.includes(specialty);
-                  return (
-                    <button
-                      aria-pressed={selected}
-                      className={selected ? "active" : ""}
-                      key={specialty}
-                      onClick={() =>
-                        setProfile({
-                          ...profile,
-                          specialties: selected
-                            ? profile.specialties.filter(
-                                (item) => item !== specialty,
-                              )
-                            : [...profile.specialties, specialty],
-                        })
-                      }
-                      type="button"
-                    >
-                      {selected ? "✓ " : "+ "}
-                      {specialty}
-                    </button>
-                  );
-                })}
+              <legend>专长偏好（按能力维度分类，可多选）</legend>
+              <div className="specialty-groups">
+                {activeSpecialtyGroups.map((group) => (
+                  <section key={group.id}>
+                    <h3>{group.label}</h3>
+                    <div className="specialty-options">
+                      {group.options.map((specialty) => {
+                        const selected =
+                          profile.specialties.includes(specialty);
+                        return (
+                          <button
+                            aria-pressed={selected}
+                            className={selected ? "active" : ""}
+                            key={specialty}
+                            onClick={() =>
+                              setProfile({
+                                ...profile,
+                                specialties: selected
+                                  ? profile.specialties.filter(
+                                      (item) => item !== specialty,
+                                    )
+                                  : [...profile.specialties, specialty],
+                              })
+                            }
+                            type="button"
+                          >
+                            {selected ? "✓ " : "+ "}
+                            {specialty}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
               </div>
               <small>
-                {`系统会自动把 ${
-                  activeRoleTrack.relatedRoles.join("、") || "相邻岗位"
+                {`已选 ${profile.specialties.length} 项；系统会自动把 ${
+                  getRelatedRoleTracks(activeRoleTrack)
+                    .map((track) => track.label)
+                    .join("、") || "相邻岗位"
                 } 放入拓展机会，不与主方向混在一起。`}
               </small>
             </fieldset>
