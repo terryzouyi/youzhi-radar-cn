@@ -1,6 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 type Profile = {
   currentRole: string;
@@ -12,7 +18,7 @@ type Profile = {
 };
 
 type Job = {
-  id: number;
+  id: string | number;
   title: string;
   company: string;
   companyCode: string;
@@ -26,6 +32,26 @@ type Job = {
   tags: string[];
   reasons: string[];
   summary: string;
+  originalUrl?: string;
+  updatedAt?: string;
+  provider?: "tencent" | "netease" | "demo";
+};
+
+type SourceState = {
+  id: string;
+  name: string;
+  status: "online" | "error" | "waiting";
+  count: number;
+  detail: string;
+  url: string;
+};
+
+type JobsResponse = {
+  jobs: Job[];
+  sources: SourceState[];
+  fetchedAt: string;
+  query: string;
+  live: boolean;
 };
 
 const defaultProfile: Profile = {
@@ -37,7 +63,7 @@ const defaultProfile: Profile = {
   keywords: "系统策划，商业化，数值设计",
 };
 
-const jobs: Job[] = [
+const demoJobs: Job[] = [
   {
     id: 1,
     title: "高级系统策划 — 全球化新品",
@@ -54,6 +80,7 @@ const jobs: Job[] = [
     reasons: ["方向高度重合", "薪资在目标区间", "城市命中"],
     summary:
       "负责全球化新品的核心系统、成长线与商业化体验设计，要求能独立完成从需求分析到版本验收的完整闭环。",
+    provider: "demo",
   },
   {
     id: 2,
@@ -71,6 +98,7 @@ const jobs: Job[] = [
     reasons: ["经历可迁移", "城市命中", "近期活跃"],
     summary:
       "面向策略竞技品类，推进玩法与版本规划，并结合用户研究和数据分析持续优化核心循环。",
+    provider: "demo",
   },
   {
     id: 3,
@@ -88,6 +116,7 @@ const jobs: Job[] = [
     reasons: ["核心关键词命中", "薪资高于预期", "官网首发"],
     summary:
       "负责开放世界项目商业化内容的规划与落地，协同系统、美术和运营团队完成版本目标。",
+    provider: "demo",
   },
   {
     id: 4,
@@ -105,6 +134,7 @@ const jobs: Job[] = [
     reasons: ["技能高度匹配", "年限略高", "招聘方活跃"],
     summary:
       "参与 SLG 长线系统与数值生态设计，建立验证框架并持续优化付费与社交体验。",
+    provider: "demo",
   },
   {
     id: 5,
@@ -122,6 +152,7 @@ const jobs: Job[] = [
     reasons: ["城市命中", "薪资吻合", "方向部分重合"],
     summary:
       "负责关卡节奏、玩法空间和叙事体验设计，与程序、美术协作完成白盒到正式版本的落地。",
+    provider: "demo",
   },
   {
     id: 6,
@@ -139,23 +170,8 @@ const jobs: Job[] = [
     reasons: ["产品能力可迁移", "城市命中", "薪资下沿偏低"],
     summary:
       "围绕 UGC 创作与消费场景设计产品能力，推进创作者工具、内容分发和社区生态建设。",
+    provider: "demo",
   },
-];
-
-const sources = [
-  { name: "厂商招聘官网", detail: "7 家已连接", status: "online" },
-  { name: "BOSS 直聘", detail: "刚刚同步", status: "online" },
-  { name: "牛客招聘", detail: "8 分钟前", status: "online" },
-  { name: "猎聘", detail: "12 分钟前", status: "online" },
-  { name: "拉勾招聘", detail: "等待同步", status: "waiting" },
-];
-
-const companies = [
-  ["腾讯游戏", "14"],
-  ["网易游戏", "11"],
-  ["米哈游", "7"],
-  ["莉莉丝游戏", "5"],
-  ["叠纸游戏", "4"],
 ];
 
 const navItems = [
@@ -167,41 +183,192 @@ const navItems = [
 
 const filters = ["全部职位", "高匹配", "官网直招", "近三天"];
 
+const initialOfficialSources: SourceState[] = [
+  {
+    id: "tencent",
+    name: "腾讯招聘",
+    status: "waiting",
+    count: 0,
+    detail: "正在连接官网",
+    url: "https://careers.tencent.com/zh-cn/",
+  },
+  {
+    id: "netease",
+    name: "网易招聘",
+    status: "waiting",
+    count: 0,
+    detail: "正在连接官网",
+    url: "https://hr.163.com/job-list.html",
+  },
+];
+
 export default function Home() {
   const [profile, setProfile] = useState<Profile>(defaultProfile);
   const [savedProfile, setSavedProfile] = useState<Profile>(defaultProfile);
   const [activeNav, setActiveNav] = useState("岗位雷达");
   const [activeFilter, setActiveFilter] = useState("全部职位");
-  const [savedJobs, setSavedJobs] = useState<number[]>([3]);
+  const [savedJobs, setSavedJobs] = useState<Array<string | number>>([3]);
   const [search, setSearch] = useState("");
-  const [scanning, setScanning] = useState(false);
+  const [scanning, setScanning] = useState(true);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [notice, setNotice] = useState("");
+  const [jobResults, setJobResults] = useState<Job[]>(demoJobs);
+  const [sourceStates, setSourceStates] = useState<SourceState[]>(
+    initialOfficialSources,
+  );
+  const [dataMode, setDataMode] = useState<
+    "loading" | "live" | "fallback"
+  >("loading");
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+
+  const loadJobs = useCallback(
+    async (currentProfile: Profile, announce = false) => {
+      setScanning(true);
+      if (announce) setNotice("");
+      const params = new URLSearchParams({
+        q: currentProfile.targetRole,
+        cities: currentProfile.cities,
+        keywords: currentProfile.keywords,
+      });
+      try {
+        const response = await fetch(`/api/jobs?${params}`, {
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) throw new Error("职位服务暂不可用");
+        const payload = (await response.json()) as JobsResponse;
+        setSourceStates(payload.sources);
+        setLastUpdated(payload.fetchedAt);
+        if (payload.live && payload.jobs.length > 0) {
+          setJobResults(payload.jobs);
+          setDataMode("live");
+          if (announce) {
+            const onlineCount = payload.sources.filter(
+              (source) => source.status === "online",
+            ).length;
+            setNotice(
+              `已从 ${onlineCount} 个厂商官网获取 ${payload.jobs.length} 个职位`,
+            );
+          }
+        } else {
+          setJobResults(demoJobs);
+          setDataMode("fallback");
+          if (announce) {
+            setNotice("官网本次未返回职位，暂时保留演示数据");
+          }
+        }
+      } catch {
+        setJobResults(demoJobs);
+        setSourceStates(
+          initialOfficialSources.map((source) => ({
+            ...source,
+            status: "error",
+            detail: "本次连接失败，可前往官网搜索",
+          })),
+        );
+        setDataMode("fallback");
+        setLastUpdated(new Date().toISOString());
+        if (announce) {
+          setNotice("官方来源暂时无法连接，已保留演示数据");
+        }
+      } finally {
+        setScanning(false);
+        if (announce) window.setTimeout(() => setNotice(""), 4200);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const storedProfile = window.localStorage.getItem("youzhi-profile");
     const storedSaved = window.localStorage.getItem("youzhi-saved");
+    let initialProfile = defaultProfile;
+    let parsedProfile: Profile | null = null;
+    let parsedSavedJobs: Array<string | number> | null = null;
     if (storedProfile) {
       try {
-        const parsed = JSON.parse(storedProfile) as Profile;
-        setProfile(parsed);
-        setSavedProfile(parsed);
+        parsedProfile = JSON.parse(storedProfile) as Profile;
+        initialProfile = parsedProfile;
       } catch {
         window.localStorage.removeItem("youzhi-profile");
       }
     }
     if (storedSaved) {
       try {
-        setSavedJobs(JSON.parse(storedSaved) as number[]);
+        parsedSavedJobs = JSON.parse(storedSaved) as Array<string | number>;
       } catch {
         window.localStorage.removeItem("youzhi-saved");
       }
     }
-  }, []);
+    window.queueMicrotask(() => {
+      if (parsedProfile) {
+        setProfile(parsedProfile);
+        setSavedProfile(parsedProfile);
+      }
+      if (parsedSavedJobs) setSavedJobs(parsedSavedJobs);
+      void loadJobs(initialProfile);
+    });
+  }, [loadJobs]);
+
+  const displaySources = useMemo<SourceState[]>(() => {
+    const query = encodeURIComponent(savedProfile.targetRole);
+    return [
+      ...sourceStates,
+      {
+        id: "mihoyo",
+        name: "米哈游招聘",
+        status: "waiting",
+        count: 0,
+        detail: "官网搜索入口",
+        url: `https://jobs.mihoyo.com/position?jobName=${query}`,
+      },
+      {
+        id: "boss",
+        name: "BOSS 直聘",
+        status: "waiting",
+        count: 0,
+        detail: "站外搜索，不读取账号数据",
+        url: `https://www.zhipin.com/web/geek/job?query=${query}`,
+      },
+      {
+        id: "nowcoder",
+        name: "牛客招聘",
+        status: "waiting",
+        count: 0,
+        detail: "站外搜索入口",
+        url: "https://www.nowcoder.com/jobs/fulltime/center",
+      },
+    ];
+  }, [savedProfile.targetRole, sourceStates]);
+
+  const companySummary = useMemo(() => {
+    const counts = new Map<string, number>();
+    jobResults.forEach((job) => {
+      const company = job.company.split(" · ")[0];
+      counts.set(company, (counts.get(company) || 0) + 1);
+    });
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+  }, [jobResults]);
+
+  const onlineSourceCount = displaySources.filter(
+    (source) => source.status === "online",
+  ).length;
+  const highMatchCount = jobResults.filter((job) => job.match >= 85).length;
+  const referenceTime = lastUpdated
+    ? new Date(lastUpdated).getTime()
+    : undefined;
+  const recentCount = jobResults.filter((job) => {
+    if (!job.updatedAt || !referenceTime) return true;
+    return (
+      referenceTime - new Date(job.updatedAt).getTime() <
+      3 * 24 * 60 * 60 * 1000
+    );
+  }).length;
 
   const visibleJobs = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    return jobs.filter((job) => {
+    return jobResults.filter((job) => {
       const passesSearch =
         !keyword ||
         [
@@ -216,29 +383,34 @@ export default function Home() {
           .includes(keyword);
       const passesFilter =
         activeFilter === "全部职位" ||
-        (activeFilter === "高匹配" && job.match >= 90) ||
+        (activeFilter === "高匹配" && job.match >= 85) ||
         (activeFilter === "官网直招" && job.sourceType === "官网直招") ||
-        (activeFilter === "近三天" && job.id !== 6);
+        (activeFilter === "近三天" &&
+          (!job.updatedAt ||
+            !referenceTime ||
+            referenceTime - new Date(job.updatedAt).getTime() <
+              3 * 24 * 60 * 60 * 1000));
       const passesSaved =
         activeNav !== "收藏夹" || savedJobs.includes(job.id);
       return passesSearch && passesFilter && passesSaved;
     });
-  }, [activeFilter, activeNav, savedJobs, search]);
+  }, [
+    activeFilter,
+    activeNav,
+    jobResults,
+    referenceTime,
+    savedJobs,
+    search,
+  ]);
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    setScanning(true);
-    setNotice("");
-    window.setTimeout(() => {
-      setSavedProfile(profile);
-      window.localStorage.setItem("youzhi-profile", JSON.stringify(profile));
-      setScanning(false);
-      setNotice("画像已保存，示例职位已按新方向重新排序");
-      window.setTimeout(() => setNotice(""), 3600);
-    }, 1300);
+    setSavedProfile(profile);
+    window.localStorage.setItem("youzhi-profile", JSON.stringify(profile));
+    await loadJobs(profile, true);
   };
 
-  const toggleSaved = (id: number) => {
+  const toggleSaved = (id: string | number) => {
     setSavedJobs((current) => {
       const next = current.includes(id)
         ? current.filter((jobId) => jobId !== id)
@@ -260,13 +432,8 @@ export default function Home() {
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const rerunScan = () => {
-    setScanning(true);
-    window.setTimeout(() => {
-      setScanning(false);
-      setNotice("12 个来源扫描完成，发现 18 个新增示例职位");
-      window.setTimeout(() => setNotice(""), 3600);
-    }, 1500);
+  const rerunScan = async () => {
+    await loadJobs(savedProfile, true);
   };
 
   return (
@@ -299,7 +466,7 @@ export default function Home() {
               <span aria-hidden="true">{icon}</span>
               {label}
               {label === "收藏夹" && <em>{savedJobs.length}</em>}
-              {label === "厂商库" && <em>42</em>}
+              {label === "厂商库" && <em>{companySummary.length}</em>}
             </button>
           ))}
         </nav>
@@ -307,14 +474,22 @@ export default function Home() {
         <div className="source-mini">
           <div className="source-mini-head">
             <span>来源状态</span>
-            <b>12 / 15</b>
+            <b>
+              {onlineSourceCount} / {displaySources.length}
+            </b>
           </div>
-          <div className="signal-bars" aria-label="12 个数据源在线">
-            {Array.from({ length: 15 }).map((_, index) => (
-              <i className={index < 12 ? "on" : ""} key={index} />
+          <div
+            className="signal-bars"
+            aria-label={`${onlineSourceCount} 个数据源实时连接`}
+          >
+            {displaySources.map((source) => (
+              <i
+                className={source.status === "online" ? "on" : ""}
+                key={source.id}
+              />
             ))}
           </div>
-          <small>下一轮自动扫描 · 43 分钟后</small>
+          <small>手动刷新 · 服务端缓存 5 分钟</small>
         </div>
 
         <div className="sidebar-foot">
@@ -337,7 +512,18 @@ export default function Home() {
           </div>
           <div className="top-actions">
             <span>
-              <i className="live-dot" /> 最近更新 10:32
+              <i
+                className={
+                  dataMode === "live" ? "live-dot" : "status-dot warning"
+                }
+              />{" "}
+              {lastUpdated
+                ? `最近更新 ${new Intl.DateTimeFormat("zh-CN", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false,
+                  }).format(new Date(lastUpdated))}`
+                : "正在连接官网"}
             </span>
             <button
               className="secondary-button"
@@ -345,7 +531,7 @@ export default function Home() {
               onClick={rerunScan}
               type="button"
             >
-              {scanning ? "扫描中…" : "↻ 重新扫描"}
+              {scanning ? "连接官网中…" : "↻ 重新扫描"}
             </button>
           </div>
         </header>
@@ -425,7 +611,7 @@ export default function Home() {
             <button className="primary-button" disabled={scanning} type="submit">
               {scanning ? (
                 <>
-                  <i className="spinner" /> 正在扫描 12 个来源
+                  <i className="spinner" /> 正在查询腾讯与网易
                 </>
               ) : (
                 "保存并开始匹配 →"
@@ -436,24 +622,28 @@ export default function Home() {
 
         <section className="metric-strip" aria-label="今日扫描摘要">
           <div>
-            <strong>286</strong>
-            <span>有效职位</span>
-            <small>已合并 73 个重复项</small>
+            <strong>{jobResults.length}</strong>
+            <span>已获取职位</span>
+            <small>
+              {dataMode === "live"
+                ? "本次从官网读取并标准化"
+                : "当前显示演示数据"}
+            </small>
           </div>
           <div>
-            <strong>47</strong>
+            <strong>{highMatchCount}</strong>
             <span>高匹配</span>
             <small>匹配度 85% 以上</small>
           </div>
           <div>
-            <strong>19</strong>
-            <span>厂商直招</span>
-            <small>优先于第三方来源</small>
+            <strong>{onlineSourceCount}</strong>
+            <span>实时官网</span>
+            <small>腾讯、网易优先</small>
           </div>
           <div>
-            <strong>18</strong>
-            <span>今日新增</span>
-            <small>近 24 小时首次出现</small>
+            <strong>{recentCount}</strong>
+            <span>近三天更新</span>
+            <small>按官网更新时间计算</small>
           </div>
           <div className="metric-profile">
             <span>当前方向</span>
@@ -487,6 +677,21 @@ export default function Home() {
               </label>
             </div>
 
+            <div className={`data-status ${dataMode}`} role="status">
+              <span aria-hidden="true">
+                {dataMode === "live"
+                  ? "●"
+                  : dataMode === "loading"
+                    ? "◌"
+                    : "!"}
+              </span>
+              {dataMode === "live"
+                ? `实时数据 · 已连接腾讯招聘、网易招聘 · 当前展示 ${jobResults.length} 个职位，最终以原始官网为准`
+                : dataMode === "loading"
+                  ? "正在连接厂商招聘官网并整理职位…"
+                  : "官方来源暂不可用，当前职位均为演示数据"}
+            </div>
+
             <div className="filter-row" role="tablist" aria-label="职位筛选">
               {filters.map((filter) => (
                 <button
@@ -503,7 +708,7 @@ export default function Home() {
               <button
                 className="filter-control"
                 onClick={() => {
-                  setNotice("高级筛选会在真实数据源接入阶段开放");
+                  setNotice("城市、年限与来源组合筛选将在下一版开放");
                   window.setTimeout(() => setNotice(""), 3000);
                 }}
                 type="button"
@@ -618,10 +823,16 @@ export default function Home() {
                   <p className="kicker">扫描来源</p>
                   <h3>数据源状态</h3>
                 </div>
-                <span className="status-chip">演示连接</span>
+                <span className="status-chip">
+                  {dataMode === "live"
+                    ? `${onlineSourceCount} 个官网实时`
+                    : dataMode === "loading"
+                      ? "正在连接"
+                      : "演示回退"}
+                </span>
               </div>
               <div className="source-list">
-                {sources.map((source) => (
+                {displaySources.map((source) => (
                   <div key={source.name}>
                     <i className={source.status} />
                     <span>
@@ -630,10 +841,13 @@ export default function Home() {
                     </span>
                     <button
                       aria-label={`查看 ${source.name}`}
-                      onClick={() => {
-                        setNotice(`${source.name}：${source.detail}`);
-                        window.setTimeout(() => setNotice(""), 2600);
-                      }}
+                      onClick={() =>
+                        window.open(
+                          source.url,
+                          "_blank",
+                          "noopener,noreferrer",
+                        )
+                      }
                       type="button"
                     >
                       ↗
@@ -644,12 +858,14 @@ export default function Home() {
               <button
                 className="text-button"
                 onClick={() => {
-                  setNotice("正式版将在这里管理接口授权、抓取频率与来源优先级");
+                  setNotice(
+                    "目前接入腾讯、网易；米哈游、BOSS、牛客提供站外搜索入口",
+                  );
                   window.setTimeout(() => setNotice(""), 3600);
                 }}
                 type="button"
               >
-                管理全部 15 个来源 →
+                查看当前来源说明 →
               </button>
             </section>
 
@@ -657,12 +873,12 @@ export default function Home() {
               <div className="rail-head">
                 <div>
                   <p className="kicker">目标厂商</p>
-                  <h3>今天有新机会</h3>
+                  <h3>本次结果分布</h3>
                 </div>
                 <button
                   aria-label="添加目标厂商"
                   onClick={() => {
-                    setNotice("输入厂商名称的功能将在数据接入阶段开放");
+                    setNotice("目标厂商名单将在下一版支持自定义");
                     window.setTimeout(() => setNotice(""), 3000);
                   }}
                   type="button"
@@ -671,7 +887,7 @@ export default function Home() {
                 </button>
               </div>
               <div className="company-list">
-                {companies.map(([company, count], index) => (
+                {companySummary.map(([company, count], index) => (
                   <button
                     key={company}
                     onClick={() => {
@@ -695,9 +911,17 @@ export default function Home() {
             <section className="rail-note">
               <span>i</span>
               <div>
-                <strong>这是可操作的产品原型</strong>
+                <strong>
+                  {dataMode === "live"
+                    ? "已接入真实公开职位"
+                    : dataMode === "loading"
+                      ? "正在连接厂商招聘官网"
+                      : "官方来源暂时不可用"}
+                </strong>
                 <p>
-                  当前职位为示例数据。正式版将通过合规接口、公开招聘页与厂商官网更新，并保留原始链接与抓取时间。
+                  {dataMode === "live"
+                    ? "腾讯和网易职位由官网公开接口实时获取；米哈游、BOSS 与牛客仅提供站外搜索入口，不读取登录态或账号数据。"
+                    : "页面会明确保留演示标识，不把示例职位当作实时招聘信息。"}
                 </p>
               </div>
             </section>
@@ -753,7 +977,11 @@ export default function Home() {
             <div className="modal-highlight">
               <div>
                 <strong>{selectedJob.salary}</strong>
-                <span>招聘方标注薪资</span>
+                <span>
+                  {selectedJob.salary === "薪资面议"
+                    ? "官网未公开具体薪资"
+                    : "招聘方标注薪资"}
+                </span>
               </div>
               <div>
                 <strong>{selectedJob.match}%</strong>
@@ -773,7 +1001,9 @@ export default function Home() {
               </div>
             </div>
             <div className="modal-disclaimer">
-              正式版会在这里显示原始职位链接、发布时间、重复来源和更新记录。
+              {selectedJob.provider === "demo"
+                ? "这是演示职位，不代表当前仍在招聘。请使用已接入的官网职位作为投递依据。"
+                : `职位内容来自 ${selectedJob.source}，更新时间为 ${selectedJob.freshness}。投递条件与在招状态以原始页面为准。`}
             </div>
             <div className="modal-actions">
               <button
@@ -785,14 +1015,20 @@ export default function Home() {
               </button>
               <button
                 className="primary-button"
-                onClick={() => {
-                  setNotice("已加入投递计划（原型）");
-                  setSelectedJob(null);
-                  window.setTimeout(() => setNotice(""), 3000);
-                }}
+                disabled={!selectedJob.originalUrl}
+                onClick={() =>
+                  selectedJob.originalUrl &&
+                  window.open(
+                    selectedJob.originalUrl,
+                    "_blank",
+                    "noopener,noreferrer",
+                  )
+                }
                 type="button"
               >
-                加入投递计划 →
+                {selectedJob.originalUrl
+                  ? "前往官网查看 →"
+                  : "演示职位无原始链接"}
               </button>
             </div>
           </section>

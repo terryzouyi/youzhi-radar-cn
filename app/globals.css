@@ -147,6 +147,18 @@ select:focus-visible {
   box-shadow: 0 0 0 4px rgb(185 246 75 / 0.1);
 }
 
+.status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.status-dot.warning {
+  background: #c9a44a;
+  box-shadow: 0 0 0 4px rgb(201 164 74 / 0.12);
+}
+
 .main-nav {
   position: relative;
   z-index: 1;
@@ -236,13 +248,13 @@ select:focus-visible {
 }
 
 .signal-bars {
-  display: grid;
-  grid-template-columns: repeat(15, 1fr);
+  display: flex;
   gap: 3px;
   margin: 13px 0 10px;
 }
 
 .signal-bars i {
+  flex: 1;
   height: 18px;
   background: #314039;
 }
@@ -499,6 +511,11 @@ select:focus-visible {
   transform: translateY(-1px);
 }
 
+.primary-button:disabled:hover {
+  background: var(--accent);
+  transform: none;
+}
+
 .spinner {
   width: 13px;
   height: 13px;
@@ -614,6 +631,35 @@ select:focus-visible {
   font-size: 24px;
   font-weight: 620;
   letter-spacing: -0.035em;
+}
+
+.data-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: #ecefe8;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.data-status.live {
+  border-color: #bdd484;
+  background: #ecf5d9;
+  color: #55702a;
+}
+
+.data-status.loading {
+  color: var(--muted);
+}
+
+.data-status.fallback {
+  border-color: #d9bd87;
+  background: #f7efdf;
+  color: #7a5b1f;
 }
 
 .search-box {
@@ -950,6 +996,10 @@ select:focus-visible {
 
 .source-list i.waiting {
   background: #c9a44a;
+}
+
+.source-list i.error {
+  background: var(--danger);
 }
 
 .source-list span {

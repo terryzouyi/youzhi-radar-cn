@@ -34,20 +34,26 @@ test("server-renders the job radar product", async () => {
   assert.match(html, /先定义方向，再开始搜索。/);
   assert.match(html, /值得优先看的职位/);
   assert.match(html, /腾讯游戏/);
-  assert.match(html, /这是可操作的产品原型/);
+  assert.match(html, /正在连接厂商招聘官网/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
 
 test("removes the disposable starter preview", async () => {
-  const [page, layout, packageJson] = await Promise.all([
+  const [page, route, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/jobs/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /游职雷达/);
   assert.match(page, /window\.localStorage/);
+  assert.match(page, /\/api\/jobs/);
+  assert.match(page, /originalUrl/);
   assert.match(page, /aria-modal="true"/);
+  assert.match(route, /careers\.tencent\.com/);
+  assert.match(route, /hr\.163\.com/);
+  assert.match(route, /Cache-Control/);
   assert.match(layout, /lang="zh-CN"/);
   assert.match(layout, /互联网与游戏行业求职搜索/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
