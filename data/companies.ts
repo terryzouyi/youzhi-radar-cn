@@ -14,6 +14,10 @@ export type CompanyProfile = {
   city: string;
   careerUrl: string;
   careerMode: "official" | "platform";
+  campusUrl?: string;
+  wechatName: string;
+  wechatMode: "verified" | "referenced" | "search";
+  wechatSearchUrl: string;
 };
 
 type CompanySeed = [
@@ -128,16 +132,16 @@ const seeds: CompanySeed[] = [
 ];
 
 const officialCareerUrls: Record<string, string> = {
-  tencent: "https://careers.tencent.com/zh-cn/",
+  tencent: "https://hr.tencent.com/zh-cn/",
   netease: "https://hr.163.com/job-list.html",
   mihoyo: "https://jobs.mihoyo.com/position",
-  "37games": "https://hr.37.com/",
-  lilith: "https://www.lilith.com/cn/hr",
+  "37games": "https://zhaopin.37.com/",
+  lilith: "https://jobs.lilith.com/",
   papergames: "https://career.papegames.com/",
   kuro: "https://app.mokahr.com/social-recruitment/kuro/46886",
   moonton: "https://job.moonton.com/",
   hypergryph: "https://jobs.hypergryph.com/",
-  perfectworld: "https://recruit.wanmei.com/",
+  perfectworld: "https://jobs.games.wanmei.com/",
   xd: "https://www.xd.com/cn/career/",
   gbits: "https://www.g-bits.com/recruit",
   shengqu: "https://hr.shengqugames.com/",
@@ -158,21 +162,65 @@ const officialCareerUrls: Record<string, string> = {
   "360-game": "https://hr.360.cn/",
 };
 
+const campusCareerUrls: Record<string, string> = {
+  tencent: "https://join.qq.com/",
+  netease: "https://campus.163.com/",
+  mihoyo: "https://join.mihoyo.com/",
+  "37games":
+    "https://zhaopin.37.com/index.php?a=index&c=recruit&m=Home",
+  lilith: "https://jobs.lilith.com/",
+  papergames: "https://career.papegames.com/campus",
+  hypergryph: "https://career.hypergryph.com/",
+  perfectworld: "https://jobs.games.wanmei.com/school.html",
+  "bytedance-game":
+    "https://jobs.bytedance.com/campus/page-6272Gc",
+};
+
+const wechatRecruitmentAccounts: Record<
+  string,
+  {
+    name: string;
+    mode: "verified" | "referenced";
+  }
+> = {
+  tencent: { name: "腾讯招聘", mode: "verified" },
+  netease: { name: "网易游戏综合招聘", mode: "referenced" },
+  mihoyo: { name: "米哈游招聘", mode: "verified" },
+  "37games": { name: "三七互娱招聘", mode: "verified" },
+  papergames: { name: "叠纸游戏招聘", mode: "referenced" },
+  kuro: { name: "库洛游戏招聘", mode: "referenced" },
+  hypergryph: { name: "鹰角网络招聘", mode: "verified" },
+  perfectworld: { name: "完美世界招聘", mode: "verified" },
+  "bytedance-game": { name: "字节跳动招聘", mode: "verified" },
+};
+
 function platformSearchUrl(name: string) {
   return `https://www.nowcoder.com/jobs/fulltime/center?query=${encodeURIComponent(name)}`;
 }
 
+function wechatSearchUrl(query: string) {
+  return `https://weixin.sogou.com/weixin?type=2&query=${encodeURIComponent(query)}`;
+}
+
 export const companyProfiles: CompanyProfile[] = seeds.map(
-  ([id, name, kind, city, aliases = []], index) => ({
-    id,
-    order: index + 1,
-    name,
-    aliases: [name, ...aliases],
-    kind,
-    city,
-    careerUrl: officialCareerUrls[id] || platformSearchUrl(name),
-    careerMode: officialCareerUrls[id] ? "official" : "platform",
-  }),
+  ([id, name, kind, city, aliases = []], index) => {
+    const wechat = wechatRecruitmentAccounts[id];
+    const wechatName = wechat?.name || `${name} 招聘`;
+    return {
+      id,
+      order: index + 1,
+      name,
+      aliases: [name, ...aliases],
+      kind,
+      city,
+      careerUrl: officialCareerUrls[id] || platformSearchUrl(name),
+      careerMode: officialCareerUrls[id] ? "official" : "platform",
+      campusUrl: campusCareerUrls[id],
+      wechatName,
+      wechatMode: wechat?.mode || "search",
+      wechatSearchUrl: wechatSearchUrl(wechatName),
+    };
+  },
 );
 
 function normalizeCompanyName(value: string) {
@@ -203,5 +251,12 @@ export const companyCoverageStats = {
   ).length,
   internet: companyProfiles.filter(
     (company) => company.kind === "互联网游戏业务",
+  ).length,
+  campus: companyProfiles.filter((company) => company.campusUrl).length,
+  wechatKnown: companyProfiles.filter(
+    (company) => company.wechatMode !== "search",
+  ).length,
+  wechatVerified: companyProfiles.filter(
+    (company) => company.wechatMode === "verified",
   ).length,
 };

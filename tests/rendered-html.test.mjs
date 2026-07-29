@@ -34,6 +34,9 @@ test("server-renders the job radar product", async () => {
   assert.match(html, /先定义方向，再开始搜索。/);
   assert.match(html, /值得优先看的职位/);
   assert.match(html, /100 家重点厂商，一张求职地图。/);
+  assert.match(html, /职位之外，也追踪招聘批次和官方动态。/);
+  assert.match(html, /2027 秋季校园招聘提前批已启动/);
+  assert.match(html, /公众号没有稳定公开接口/);
   assert.match(html, /腾讯游戏/);
   assert.match(html, /正在连接实时来源/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
@@ -44,7 +47,9 @@ test("removes the disposable starter preview", async () => {
     page,
     route,
     companyRoute,
+    intelligenceRoute,
     companies,
+    signals,
     layout,
     packageJson,
     nextConfig,
@@ -59,7 +64,15 @@ test("removes the disposable starter preview", async () => {
       new URL("../app/api/companies/route.ts", import.meta.url),
       "utf8",
     ),
+    readFile(
+      new URL("../app/api/intelligence/route.ts", import.meta.url),
+      "utf8",
+    ),
     readFile(new URL("../data/companies.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../data/recruitment-signals.ts", import.meta.url),
+      "utf8",
+    ),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../next.config.ts", import.meta.url), "utf8"),
@@ -85,8 +98,14 @@ test("removes the disposable starter preview", async () => {
   assert.match(route, /matchesTargetRole/);
   assert.match(route, /Cache-Control/);
   assert.match(companyRoute, /companyCoverageStats/);
+  assert.match(intelligenceRoute, /recruitmentSignals/);
+  assert.match(intelligenceRoute, /verifiedWechatAccounts/);
   assert.match(companies, /字节跳动游戏/);
   assert.match(companies, /哔哩哔哩游戏/);
+  assert.match(companies, /腾讯招聘/);
+  assert.match(companies, /鹰角网络招聘/);
+  assert.match(signals, /mp\.weixin\.qq\.com/);
+  assert.match(signals, /收费内推/);
   const seedBlock = companies.match(/const seeds:[\s\S]+?\n\];/);
   assert.ok(seedBlock);
   assert.equal((seedBlock[0].match(/^\s+\["/gm) || []).length, 100);

@@ -12,6 +12,7 @@ import {
   companyCoverageStats,
   companyProfiles,
 } from "../data/companies";
+import { recruitmentSignals } from "../data/recruitment-signals";
 
 type Profile = {
   currentRole: string;
@@ -811,10 +812,78 @@ export default function Home() {
           </div>
         </section>
 
+        <section
+          className="intelligence-panel"
+          aria-labelledby="intelligence-title"
+        >
+          <div className="intelligence-head">
+            <div className="intelligence-title">
+              <span className="section-number">02</span>
+              <div>
+                <p className="kicker">招聘情报</p>
+                <h2 id="intelligence-title">
+                  职位之外，也追踪招聘批次和官方动态。
+                </h2>
+                <p>
+                  官网职位是主数据；公众号、校招专题和官方内容用于补充提前批、专项招募、实习窗口与安全提醒。
+                </p>
+              </div>
+            </div>
+            <div className="channel-summary" aria-label="招聘渠道覆盖摘要">
+              <div>
+                <strong>{companyCoverageStats.official}</strong>
+                <span>官网招聘入口</span>
+              </div>
+              <div>
+                <strong>{companyCoverageStats.wechatKnown}</strong>
+                <span>已收录招聘号</span>
+              </div>
+              <div>
+                <strong>{companyCoverageStats.campus}</strong>
+                <span>校招 / 实习专题</span>
+              </div>
+              <div>
+                <strong>{recruitmentSignals.length}</strong>
+                <span>当前精选情报</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="intelligence-grid">
+            {recruitmentSignals.map((signal) => (
+              <article className="intelligence-card" key={signal.id}>
+                <div className="intelligence-card-meta">
+                  <span>{signal.channel}</span>
+                  <time>{signal.dateLabel}</time>
+                </div>
+                <p>{signal.company}</p>
+                <h3>{signal.title}</h3>
+                <div>{signal.detail}</div>
+                <button
+                  onClick={() =>
+                    window.open(
+                      signal.url,
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
+                  }
+                  type="button"
+                >
+                  查看原始来源 ↗
+                </button>
+              </article>
+            ))}
+          </div>
+
+          <p className="intelligence-note">
+            微信公众号没有稳定公开接口：已核验招聘号会显示名称，其余公司只提供站外检索词；请在微信内再次核对认证主体和发布时间。
+          </p>
+        </section>
+
         <section className="company-panel" aria-labelledby="company-title">
           <div className="company-panel-head">
             <div className="company-panel-title">
-              <span className="section-number">02</span>
+              <span className="section-number">03</span>
               <div>
                 <p className="kicker">国内游戏厂商覆盖</p>
                 <h2 id="company-title">100 家重点厂商，一张求职地图。</h2>
@@ -890,6 +959,24 @@ export default function Home() {
                   <p>
                     {company.kind} · {company.city}
                   </p>
+                  <div className="company-channel-line">
+                    {company.campusUrl && <span>校招专题</span>}
+                    <span
+                      className={
+                        company.wechatMode === "verified"
+                          ? "verified"
+                          : company.wechatMode === "referenced"
+                            ? "referenced"
+                            : ""
+                      }
+                    >
+                      {company.wechatMode === "verified"
+                        ? "已核验招聘号"
+                        : company.wechatMode === "referenced"
+                          ? "招聘号线索"
+                          : "公众号检索"}
+                    </span>
+                  </div>
                 </div>
                 <span
                   className={
@@ -927,6 +1014,41 @@ export default function Home() {
                   >
                     {isGitHubPages ? "去实时版查询" : "实时查岗位"}
                   </button>
+                  {company.campusUrl && (
+                    <button
+                      aria-label={`打开 ${company.name} 校招或实习专题`}
+                      onClick={() =>
+                        window.open(
+                          company.campusUrl,
+                          "_blank",
+                          "noopener,noreferrer",
+                        )
+                      }
+                      type="button"
+                    >
+                      校招
+                    </button>
+                  )}
+                  <button
+                    aria-label={`检索 ${company.wechatName} 微信公众号文章`}
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(
+                        company.wechatName,
+                      );
+                      setNotice(
+                        `已复制「${company.wechatName}」，请在微信内核对认证主体`,
+                      );
+                      window.setTimeout(() => setNotice(""), 3600);
+                      window.open(
+                        company.wechatSearchUrl,
+                        "_blank",
+                        "noopener,noreferrer",
+                      );
+                    }}
+                    type="button"
+                  >
+                    公众号
+                  </button>
                   <button
                     aria-label={`打开 ${company.name} 招聘入口`}
                     onClick={() =>
@@ -961,7 +1083,7 @@ export default function Home() {
           <section className="results" aria-labelledby="results-title">
             <div className="results-head">
               <div>
-                <span className="section-number">03</span>
+                <span className="section-number">04</span>
                 <div>
                   <p className="kicker">匹配结果</p>
                   <h2 id="results-title">
