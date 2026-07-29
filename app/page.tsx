@@ -7,6 +7,11 @@ import {
   useMemo,
   useState,
 } from "react";
+import {
+  CompanyKind,
+  companyCoverageStats,
+  companyProfiles,
+} from "../data/companies";
 
 type Profile = {
   currentRole: string;
@@ -34,13 +39,21 @@ type Job = {
   summary: string;
   originalUrl?: string;
   updatedAt?: string;
-  provider?: "tencent" | "netease" | "demo";
+  provider?:
+    | "tencent"
+    | "netease"
+    | "nowcoder"
+    | "liepin"
+    | "demo";
+  coverageOrder?: number;
+  coveredCompany?: string;
 };
 
 type SourceState = {
   id: string;
   name: string;
-  status: "online" | "error" | "waiting";
+  type?: "official" | "platform";
+  status: "online" | "error" | "waiting" | "limited";
   count: number;
   detail: string;
   url: string;
@@ -51,7 +64,12 @@ type JobsResponse = {
   sources: SourceState[];
   fetchedAt: string;
   query: string;
+  company?: string;
   live: boolean;
+  coverage?: {
+    matchedJobs: number;
+    matchedCompanies: number;
+  };
 };
 
 const defaultProfile: Profile = {
@@ -182,11 +200,20 @@ const navItems = [
 ];
 
 const filters = ["全部职位", "高匹配", "官网直招", "近三天"];
+const companyKinds: Array<CompanyKind | "全部"> = [
+  "全部",
+  "头部综合",
+  "核心厂商",
+  "成长出海",
+  "独立新锐",
+  "互联网游戏业务",
+];
 
 const initialOfficialSources: SourceState[] = [
   {
     id: "tencent",
     name: "腾讯招聘",
+    type: "official",
     status: "waiting",
     count: 0,
     detail: "正在连接官网",
@@ -195,10 +222,29 @@ const initialOfficialSources: SourceState[] = [
   {
     id: "netease",
     name: "网易招聘",
+    type: "official",
     status: "waiting",
     count: 0,
     detail: "正在连接官网",
     url: "https://hr.163.com/job-list.html",
+  },
+  {
+    id: "nowcoder",
+    name: "牛客招聘",
+    type: "platform",
+    status: "waiting",
+    count: 0,
+    detail: "正在连接公开职位接口",
+    url: "https://www.nowcoder.com/jobs/fulltime/center",
+  },
+  {
+    id: "liepin",
+    name: "猎聘",
+    type: "platform",
+    status: "waiting",
+    count: 0,
+    detail: "正在连接公开职位接口",
+    url: "https://www.liepin.com/zhaopin/",
   },
 ];
 
@@ -220,9 +266,21 @@ export default function Home() {
     "loading" | "live" | "fallback"
   >("loading");
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [coverage, setCoverage] = useState({
+    matchedJobs: 0,
+    matchedCompanies: 0,
+  });
+  const [companyFocus, setCompanyFocus] = useState("");
+  const [companyQuery, setCompanyQuery] = useState("");
+  const [companyKind, setCompanyKind] = useState<CompanyKind | "全部">("全部");
+  const [companyLimit, setCompanyLimit] = useState(24);
 
   const loadJobs = useCallback(
-    async (currentProfile: Profile, announce = false) => {
+    async (
+      currentProfile: Profile,
+      announce = false,
+      companyName = "",
+    ) => {
       setScanning(true);
       if (announce) setNotice("");
       const params = new URLSearchParams({
@@ -230,6 +288,7 @@ export default function Home() {
         cities: currentProfile.cities,
         keywords: currentProfile.keywords,
       });
+      if (companyName) params.set("company", companyName);
       try {
         const response = await fetch(`/api/jobs?${params}`, {
           headers: { Accept: "application/json" },
@@ -238,7 +297,14 @@ export default function Home() {
         const payload = (await response.json()) as JobsResponse;
         setSourceStates(payload.sources);
         setLastUpdated(payload.fetchedAt);
-        if (payload.live && payload.jobs.length > 0) {
+        setCompanyFocus(payload.company || "");
+        setCoverage(
+          payload.coverage || {
+            matchedJobs: 0,
+            matchedCompanies: 0,
+          },
+        );
+        if (payload.live && (payload.jobs.length > 0 || payload.company)) {
           setJobResults(payload.jobs);
           setDataMode("live");
           if (announce) {
@@ -246,18 +312,22 @@ export default function Home() {
               (source) => source.status === "online",
             ).length;
             setNotice(
-              `已从 ${onlineCount} 个厂商官网获取 ${payload.jobs.length} 个职位`,
+              payload.company
+                ? `已为 ${payload.company} 查询 ${onlineCount} 个适用来源，找到 ${payload.jobs.length} 个职位`
+                : `已从 ${onlineCount} 个实时来源获取 ${payload.jobs.length} 个职位`,
             );
           }
         } else {
           setJobResults(demoJobs);
           setDataMode("fallback");
           if (announce) {
-            setNotice("官网本次未返回职位，暂时保留演示数据");
+            setNotice("实时来源本次未返回职位，暂时保留演示数据");
           }
         }
       } catch {
         setJobResults(demoJobs);
+        setCompanyFocus("");
+        setCoverage({ matchedJobs: 0, matchedCompanies: 0 });
         setSourceStates(
           initialOfficialSources.map((source) => ({
             ...source,
@@ -268,7 +338,7 @@ export default function Home() {
         setDataMode("fallback");
         setLastUpdated(new Date().toISOString());
         if (announce) {
-          setNotice("官方来源暂时无法连接，已保留演示数据");
+            setNotice("实时来源暂时无法连接，已保留演示数据");
         }
       } finally {
         setScanning(false);
@@ -310,35 +380,55 @@ export default function Home() {
   }, [loadJobs]);
 
   const displaySources = useMemo<SourceState[]>(() => {
-    const query = encodeURIComponent(savedProfile.targetRole);
+    const query = encodeURIComponent(
+      [companyFocus, savedProfile.targetRole].filter(Boolean).join(" "),
+    );
     return [
       ...sourceStates,
       {
-        id: "mihoyo",
-        name: "米哈游招聘",
-        status: "waiting",
-        count: 0,
-        detail: "官网搜索入口",
-        url: `https://jobs.mihoyo.com/position?jobName=${query}`,
-      },
-      {
         id: "boss",
         name: "BOSS 直聘",
-        status: "waiting",
+        type: "platform",
+        status: "limited",
         count: 0,
-        detail: "站外搜索，不读取账号数据",
+        detail: "需安全验证，仅提供站外搜索",
         url: `https://www.zhipin.com/web/geek/job?query=${query}`,
       },
       {
-        id: "nowcoder",
-        name: "牛客招聘",
-        status: "waiting",
+        id: "zhaopin",
+        name: "智联招聘",
+        type: "platform",
+        status: "limited",
         count: 0,
-        detail: "站外搜索入口",
-        url: "https://www.nowcoder.com/jobs/fulltime/center",
+        detail: "触发安全验证，仅提供站外搜索",
+        url: `https://www.zhaopin.com/sou/?kw=${query}`,
+      },
+      {
+        id: "51job",
+        name: "前程无忧",
+        type: "platform",
+        status: "limited",
+        count: 0,
+        detail: "依赖浏览器验证，仅提供站外搜索",
+        url: `https://we.51job.com/pc/search?keyword=${query}`,
       },
     ];
-  }, [savedProfile.targetRole, sourceStates]);
+  }, [companyFocus, savedProfile.targetRole, sourceStates]);
+
+  const visibleCompanies = useMemo(() => {
+    const keyword = companyQuery.trim().toLowerCase();
+    return companyProfiles.filter((company) => {
+      const passesKind =
+        companyKind === "全部" || company.kind === companyKind;
+      const passesQuery =
+        !keyword ||
+        [company.name, company.city, company.kind, ...company.aliases]
+          .join(" ")
+          .toLowerCase()
+          .includes(keyword);
+      return passesKind && passesQuery;
+    });
+  }, [companyKind, companyQuery]);
 
   const companySummary = useMemo(() => {
     const counts = new Map<string, number>();
@@ -407,6 +497,7 @@ export default function Home() {
     event.preventDefault();
     setSavedProfile(profile);
     window.localStorage.setItem("youzhi-profile", JSON.stringify(profile));
+    setSearch("");
     await loadJobs(profile, true);
   };
 
@@ -427,13 +518,14 @@ export default function Home() {
       label === "我的方向"
         ? document.getElementById("profile-title")
         : label === "厂商库"
-          ? document.querySelector(".right-rail")
+          ? document.getElementById("company-title")
           : document.getElementById("results-title");
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const rerunScan = async () => {
-    await loadJobs(savedProfile, true);
+    setSearch("");
+    await loadJobs(savedProfile, true, companyFocus);
   };
 
   return (
@@ -466,7 +558,7 @@ export default function Home() {
               <span aria-hidden="true">{icon}</span>
               {label}
               {label === "收藏夹" && <em>{savedJobs.length}</em>}
-              {label === "厂商库" && <em>{companySummary.length}</em>}
+              {label === "厂商库" && <em>{companyCoverageStats.total}</em>}
             </button>
           ))}
         </nav>
@@ -611,7 +703,7 @@ export default function Home() {
             <button className="primary-button" disabled={scanning} type="submit">
               {scanning ? (
                 <>
-                  <i className="spinner" /> 正在查询腾讯与网易
+                  <i className="spinner" /> 正在查询 4 个实时来源
                 </>
               ) : (
                 "保存并开始匹配 →"
@@ -637,8 +729,8 @@ export default function Home() {
           </div>
           <div>
             <strong>{onlineSourceCount}</strong>
-            <span>实时官网</span>
-            <small>腾讯、网易优先</small>
+            <span>实时来源</span>
+            <small>官网与公开招聘平台</small>
           </div>
           <div>
             <strong>{recentCount}</strong>
@@ -654,11 +746,149 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="company-panel" aria-labelledby="company-title">
+          <div className="company-panel-head">
+            <div className="company-panel-title">
+              <span className="section-number">02</span>
+              <div>
+                <p className="kicker">国内游戏厂商覆盖</p>
+                <h2 id="company-title">100 家重点厂商，一张求职地图。</h2>
+                <p>
+                  综合行业影响力、活跃产品、细分赛道与招聘价值整理；这是求职覆盖清单，不等同于营收或财务排名。
+                </p>
+              </div>
+            </div>
+            <div className="company-coverage-metrics">
+              <div>
+                <strong>{companyCoverageStats.total}</strong>
+                <span>覆盖厂商</span>
+              </div>
+              <div>
+                <strong>{companyCoverageStats.official}</strong>
+                <span>官网入口</span>
+              </div>
+              <div>
+                <strong>{companyCoverageStats.internet}</strong>
+                <span>互联网游戏业务</span>
+              </div>
+              <div>
+                <strong>{coverage.matchedCompanies}</strong>
+                <span>本次命中厂商</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="company-toolbar">
+            <div
+              className="company-kind-tabs"
+              role="tablist"
+              aria-label="厂商类型"
+            >
+              {companyKinds.map((kind) => (
+                <button
+                  aria-selected={companyKind === kind}
+                  className={companyKind === kind ? "active" : ""}
+                  key={kind}
+                  onClick={() => {
+                    setCompanyKind(kind);
+                    setCompanyLimit(24);
+                  }}
+                  role="tab"
+                  type="button"
+                >
+                  {kind}
+                </button>
+              ))}
+            </div>
+            <label className="company-search">
+              <span aria-hidden="true">⌕</span>
+              <input
+                aria-label="搜索厂商"
+                onChange={(event) => {
+                  setCompanyQuery(event.target.value);
+                  setCompanyLimit(24);
+                }}
+                placeholder="搜索厂商或城市"
+                value={companyQuery}
+              />
+            </label>
+          </div>
+
+          <div className="company-directory">
+            {visibleCompanies.slice(0, companyLimit).map((company) => (
+              <article className="company-directory-card" key={company.id}>
+                <div className="company-directory-index">
+                  C{String(company.order).padStart(2, "0")}
+                </div>
+                <div>
+                  <h3>{company.name}</h3>
+                  <p>
+                    {company.kind} · {company.city}
+                  </p>
+                </div>
+                <span
+                  className={
+                    company.careerMode === "official"
+                      ? "company-mode official"
+                      : "company-mode"
+                  }
+                >
+                  {company.careerMode === "official"
+                    ? "官网招聘"
+                    : "平台检索"}
+                </span>
+                <div className="company-directory-actions">
+                  <button
+                    onClick={() => {
+                      setActiveNav("岗位雷达");
+                      setSearch("");
+                      void loadJobs(savedProfile, true, company.name);
+                      document
+                        .getElementById("results-title")
+                        ?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        });
+                    }}
+                    type="button"
+                  >
+                    实时查岗位
+                  </button>
+                  <button
+                    aria-label={`打开 ${company.name} 招聘入口`}
+                    onClick={() =>
+                      window.open(
+                        company.careerUrl,
+                        "_blank",
+                        "noopener,noreferrer",
+                      )
+                    }
+                    type="button"
+                  >
+                    ↗
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          {visibleCompanies.length > companyLimit && (
+            <button
+              className="company-more"
+              onClick={() => setCompanyLimit((current) => current + 24)}
+              type="button"
+            >
+              再显示 {Math.min(24, visibleCompanies.length - companyLimit)} 家
+              厂商 ↓
+            </button>
+          )}
+        </section>
+
         <div className="content-grid">
           <section className="results" aria-labelledby="results-title">
             <div className="results-head">
               <div>
-                <span className="section-number">02</span>
+                <span className="section-number">03</span>
                 <div>
                   <p className="kicker">匹配结果</p>
                   <h2 id="results-title">
@@ -686,10 +916,10 @@ export default function Home() {
                     : "!"}
               </span>
               {dataMode === "live"
-                ? `实时数据 · 已连接腾讯招聘、网易招聘 · 当前展示 ${jobResults.length} 个职位，最终以原始官网为准`
+                ? `${companyFocus ? `聚焦 ${companyFocus} · ` : ""}实时数据 · ${onlineSourceCount} 个来源在线 · 当前展示 ${jobResults.length} 个职位，其中 ${coverage.matchedJobs} 个命中 Top100 厂商`
                 : dataMode === "loading"
-                  ? "正在连接厂商招聘官网并整理职位…"
-                  : "官方来源暂不可用，当前职位均为演示数据"}
+                  ? "正在连接实时来源并整理职位…"
+                  : "实时来源暂不可用，当前职位均为演示数据"}
             </div>
 
             <div className="filter-row" role="tablist" aria-label="职位筛选">
@@ -739,6 +969,11 @@ export default function Home() {
                         <div className="salary">{job.salary}</div>
                       </div>
                       <div className="tag-row">
+                        {job.coveredCompany && (
+                          <span className="coverage-badge">
+                            Top100 · {job.coveredCompany}
+                          </span>
+                        )}
                         {job.tags.map((tag) => (
                           <span key={tag}>{tag}</span>
                         ))}
@@ -799,17 +1034,28 @@ export default function Home() {
               ) : (
                 <div className="empty-state">
                   <span>⌕</span>
-                  <h3>没有找到符合条件的职位</h3>
-                  <p>换一个关键词，或回到全部职位继续浏览。</p>
+                  <h3>
+                    {companyFocus
+                      ? `暂未找到 ${companyFocus} 的匹配职位`
+                      : "没有找到符合条件的职位"}
+                  </h3>
+                  <p>
+                    {companyFocus
+                      ? "可以稍后重试，或使用厂商卡片右侧入口前往官网 / 平台继续搜索。"
+                      : "换一个关键词，或回到全部职位继续浏览。"}
+                  </p>
                   <button
                     className="secondary-button"
                     onClick={() => {
                       setSearch("");
                       setActiveFilter("全部职位");
+                      if (companyFocus) {
+                        void loadJobs(savedProfile, true);
+                      }
                     }}
                     type="button"
                   >
-                    清除筛选
+                    {companyFocus ? "返回全部公司" : "清除筛选"}
                   </button>
                 </div>
               )}
@@ -825,7 +1071,7 @@ export default function Home() {
                 </div>
                 <span className="status-chip">
                   {dataMode === "live"
-                    ? `${onlineSourceCount} 个官网实时`
+                    ? `${onlineSourceCount} 个来源实时`
                     : dataMode === "loading"
                       ? "正在连接"
                       : "演示回退"}
@@ -859,7 +1105,7 @@ export default function Home() {
                 className="text-button"
                 onClick={() => {
                   setNotice(
-                    "目前接入腾讯、网易；米哈游、BOSS、牛客提供站外搜索入口",
+                    "已实时接入腾讯、网易、牛客、猎聘；BOSS、智联、前程无忧受平台验证限制",
                   );
                   window.setTimeout(() => setNotice(""), 3600);
                 }}
@@ -915,12 +1161,12 @@ export default function Home() {
                   {dataMode === "live"
                     ? "已接入真实公开职位"
                     : dataMode === "loading"
-                      ? "正在连接厂商招聘官网"
-                      : "官方来源暂时不可用"}
+                      ? "正在连接实时来源"
+                      : "实时来源暂时不可用"}
                 </strong>
                 <p>
                   {dataMode === "live"
-                    ? "腾讯和网易职位由官网公开接口实时获取；米哈游、BOSS 与牛客仅提供站外搜索入口，不读取登录态或账号数据。"
+                    ? "腾讯、网易来自厂商官网；牛客、猎聘来自公开职位接口。BOSS、智联和前程无忧不会绕过验证码或读取登录态。"
                     : "页面会明确保留演示标识，不把示例职位当作实时招聘信息。"}
                 </p>
               </div>
@@ -957,7 +1203,13 @@ export default function Home() {
               ×
             </button>
             <div className="modal-kicker">
-              <span className="source-badge official">
+              <span
+                className={
+                  selectedJob.sourceType === "官网直招"
+                    ? "source-badge official"
+                    : "source-badge"
+                }
+              >
                 {selectedJob.sourceType === "官网直招" ? "◆" : "●"}{" "}
                 {selectedJob.source}
               </span>
@@ -1027,7 +1279,7 @@ export default function Home() {
                 type="button"
               >
                 {selectedJob.originalUrl
-                  ? "前往官网查看 →"
+                  ? "前往原始职位 →"
                   : "演示职位无原始链接"}
               </button>
             </div>
